@@ -17,6 +17,7 @@ import {
   apiErrorMessage,
   checkMonitorNow,
   deleteMonitor,
+  getDashboardHealth,
   getMonitor,
   listAlerts,
   listMonitorHistory,
@@ -32,6 +33,7 @@ import { Pagination } from '../components/Controls'
 import {
   anomalyLabel,
   formatBytes,
+  formatDate,
   formatDateTime,
   formatInterval,
   formatMs,
@@ -70,11 +72,17 @@ export function MonitorDetail() {
     [id],
     { pollIntervalMs: 30000 }
   )
+  // Per-monitor P95 latency comes from the existing dashboard health endpoint.
+  const health = useApi(getDashboardHealth, [], { pollIntervalMs: 30000 })
 
   const m = monitor.data
   const records = history.data?.items || []
   const chartRecords = chartHistory.data?.items || []
   const alerts = relatedAlerts.data?.items || []
+  const healthItem = useMemo(
+    () => (health.data?.monitors || []).find((h) => h.monitor_id === m?.id),
+    [health.data, m?.id]
+  )
 
   // Anomalies are embedded in the check-now response and in history records
   // when the backend includes them; derive the visible list from recent records.
@@ -169,6 +177,23 @@ export function MonitorDetail() {
 
   const headerNames = Object.keys(m.headers || {})
 
+  // SSL certificate: only https monitors carry expiry data.
+  const certDays = m.cert_days_remaining
+  let sslValue = '—'
+  if (m.cert_expires_at) {
+    const label =
+      certDays == null
+        ? `Expires ${formatDate(m.cert_expires_at)}`
+        : `Expires ${formatDate(m.cert_expires_at)} (${certDays} ${certDays === 1 ? 'day' : 'days'})`
+    if (certDays != null && certDays < 0) {
+      sslValue = <span className="font-medium text-red-600">Expired {formatDate(m.cert_expires_at)}</span>
+    } else if (certDays != null && certDays < 30) {
+      sslValue = <span className="font-medium text-amber-600">{label}</span>
+    } else {
+      sslValue = label
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -225,6 +250,9 @@ export function MonitorDetail() {
             <span className="font-mono text-sm font-normal text-zinc-400">
               {m.last_status_code ? `(${m.last_status_code})` : ''}
             </span>
+          </p>
+          <p className="mt-1 text-xs text-zinc-400">
+            P95 <span className="font-mono tabular-nums">{formatMs(healthItem?.p95_response_time_ms)}</span>
           </p>
         </div>
         <div>
@@ -351,6 +379,11 @@ export function MonitorDetail() {
                 mono
               />
               <ConfigRow label="Zero-records check" value={m.check_zero_records ? 'Enabled' : 'Disabled'} />
+              <ConfigRow
+                label="Alert after failures"
+                value={`${m.alert_after_failures ?? 2} consecutive ${(m.alert_after_failures ?? 2) === 1 ? 'failure' : 'failures'}`}
+              />
+              <ConfigRow label="SSL certificate" value={sslValue} />
               <ConfigRow
                 label="Headers"
                 value={headerNames.length ? headerNames.join(', ') : 'None'}

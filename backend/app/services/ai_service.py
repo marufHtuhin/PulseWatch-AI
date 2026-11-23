@@ -163,6 +163,18 @@ FALLBACK_TEMPLATES: dict[str, dict[str, str]] = {
             "check the service's resource usage."
         ),
     },
+    "SSL_EXPIRING": {
+        "title": "TLS certificate expiring on {monitor_name}",
+        "summary": "The API's TLS certificate is expiring soon. {detail}",
+        "possible_cause": (
+            "Certificates have a fixed validity period and must be renewed "
+            "before they expire; auto-renewal may have failed or lapsed."
+        ),
+        "recommended_action": (
+            "Renew the certificate (or check that auto-renewal ran) and "
+            "confirm the new expiry date after deployment."
+        ),
+    },
     "_DEFAULT": {
         "title": "Anomaly on {monitor_name}",
         "summary": "An anomaly was detected. {detail}",

@@ -90,4 +90,13 @@ export const getSettings = () => api.get('/settings').then((r) => r.data)
 export const updateSettings = (payload) =>
   api.put('/settings', payload).then((r) => r.data)
 
+export const testNotification = () =>
+  api.post('/settings/test-notification').then((r) => r.data)
+
+export const getCleanupPreview = () =>
+  api.get('/settings/cleanup-preview').then((r) => r.data)
+
+export const cleanupHistory = () =>
+  api.post('/settings/cleanup').then((r) => r.data)
+
 export default api

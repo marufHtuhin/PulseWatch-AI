@@ -1,4 +1,4 @@
-"""Deterministic anomaly engine — all 10 rules, each a separate testable
+"""Deterministic anomaly engine — all 11 rules, each a separate testable
 function. No ML, no randomness: the same check input always yields the
 same findings.
 """
@@ -6,6 +6,9 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, field
+from datetime import datetime
+
+from app.utils.time import to_naive_utc, utcnow
 
 # Minimum history points before the historical rule may fire. This is what
 # keeps the rule from producing false positives on a new monitor.
@@ -35,6 +38,11 @@ class AnomalyContext:
     response_size_bytes: int = 0
     max_response_size_bytes: int = 1048576
     history_ms: list[float] = field(default_factory=list)
+    # Stored TLS cert expiry (https monitors only); None when unknown.
+    cert_expires_at: datetime | None = None
+    # "Now" for time-based rules; defaults to utcnow() when not provided
+    # (tests pass an explicit value for deterministic results).
+    now: datetime | None = None
 
 
 def check_high_response_time(
@@ -176,8 +184,41 @@ def check_historical_anomaly(
     )
 
 
+def check_ssl_expiring(
+    cert_expires_at: datetime | None, now: datetime | None
+) -> AnomalyFinding | None:
+    """TLS certificate expiry tiers (fractional days remaining):
+    expired (< 0) critical, <= 7 days high, <= 30 days warning, else None.
+    No stored expiry means the cert is unknown, not a finding."""
+    if cert_expires_at is None or now is None:
+        return None
+    days_remaining = (
+        to_naive_utc(cert_expires_at) - to_naive_utc(now)
+    ).total_seconds() / 86400
+    if days_remaining < 0:
+        return AnomalyFinding(
+            "SSL_EXPIRING",
+            "critical",
+            f"TLS certificate expired {abs(days_remaining):.1f} days ago.",
+        )
+    if days_remaining <= 7:
+        return AnomalyFinding(
+            "SSL_EXPIRING",
+            "high",
+            f"TLS certificate expires in {days_remaining:.1f} days.",
+        )
+    if days_remaining <= 30:
+        return AnomalyFinding(
+            "SSL_EXPIRING",
+            "warning",
+            f"TLS certificate expires in {days_remaining:.1f} days.",
+        )
+    return None
+
+
 def detect_anomalies(ctx: AnomalyContext) -> list[AnomalyFinding]:
-    """Run all 10 rules against one check and return every finding."""
+    """Run all 11 rules against one check and return every finding."""
+    now = ctx.now or utcnow()
     checks = [
         check_high_response_time(ctx.response_time_ms, ctx.latency_threshold_ms),
         check_http_error(ctx.status_code),
@@ -189,5 +230,6 @@ def detect_anomalies(ctx: AnomalyContext) -> list[AnomalyFinding]:
         check_large_response(ctx.response_size_bytes, ctx.max_response_size_bytes),
         check_unexpected_status(ctx.status_code, ctx.expected_status_codes),
         check_historical_anomaly(ctx.response_time_ms, ctx.history_ms),
+        check_ssl_expiring(ctx.cert_expires_at, now),
     ]
     return [finding for finding in checks if finding is not None]

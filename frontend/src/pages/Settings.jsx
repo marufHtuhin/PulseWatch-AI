@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Info, Save, XCircle } from 'lucide-react'
+import { CheckCircle2, Info, Save, Send, Trash2, XCircle } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
-import { apiErrorMessage, getSettings, updateSettings } from '../api/client'
+import {
+  apiErrorMessage,
+  cleanupHistory,
+  getCleanupPreview,
+  getSettings,
+  testNotification,
+  updateSettings,
+} from '../api/client'
 import { useToast } from '../components/Toast'
 import { ErrorState, LoadingSkeleton, PageHeader } from '../components/Cards'
+import { formatNumber } from '../utils/format'
 
 const INTERVAL_OPTIONS = [
   { value: 30, label: 'Every 30 seconds' },
@@ -13,26 +21,47 @@ const INTERVAL_OPTIONS = [
   { value: 1800, label: 'Every 30 minutes' },
 ]
 
+const SEVERITY_OPTIONS = [
+  { value: 'warning', label: 'Warning' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+]
+
+function settingsToForm(data) {
+  return {
+    default_interval_seconds: data.default_interval_seconds,
+    default_timeout_seconds: data.default_timeout_seconds,
+    default_latency_threshold_ms: data.default_latency_threshold_ms,
+    max_concurrency: data.max_concurrency,
+    telegram_enabled: data.telegram_enabled ?? false,
+    telegram_min_severity: data.telegram_min_severity || 'warning',
+    telegram_chat_id: data.telegram_chat_id || '',
+    // Never pre-filled: the stored token is never returned. Empty means "keep".
+    telegram_bot_token: '',
+    retention_days: data.retention_days ?? 90,
+    alert_retention_days: data.alert_retention_days ?? 365,
+  }
+}
+
 export function Settings() {
   const toast = useToast()
   const settings = useApi(getSettings, [], { initialData: null })
+  const preview = useApi(getCleanupPreview, [], { initialData: null })
   const [form, setForm] = useState(null)
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
 
   useEffect(() => {
     if (settings.data && !form) {
-      setForm({
-        default_interval_seconds: settings.data.default_interval_seconds,
-        default_timeout_seconds: settings.data.default_timeout_seconds,
-        default_latency_threshold_ms: settings.data.default_latency_threshold_ms,
-        max_concurrency: settings.data.max_concurrency,
-      })
+      setForm(settingsToForm(settings.data))
     }
   }, [settings.data, form])
 
   const set = (field) => (e) => {
-    setForm((f) => ({ ...f, [field]: e.target.value }))
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
+    setForm((f) => ({ ...f, [field]: value }))
     setErrors((prev) => ({ ...prev, [field]: undefined }))
   }
 
@@ -54,6 +83,17 @@ export function Settings() {
     if (!INTERVAL_OPTIONS.some((o) => o.value === Number(form.default_interval_seconds))) {
       errs.default_interval_seconds = 'Choose one of the available intervals.'
     }
+    const retention = Number(form.retention_days)
+    if (!Number.isInteger(retention) || retention < 7 || retention > 365) {
+      errs.retention_days = 'Check history retention must be a whole number between 7 and 365 days.'
+    }
+    const alertRetention = Number(form.alert_retention_days)
+    if (!Number.isInteger(alertRetention) || alertRetention < 30 || alertRetention > 1095) {
+      errs.alert_retention_days = 'Resolved alert retention must be a whole number between 30 and 1095 days.'
+    }
+    if (!SEVERITY_OPTIONS.some((o) => o.value === form.telegram_min_severity)) {
+      errs.telegram_min_severity = 'Choose one of the available severities.'
+    }
     setErrors(errs)
     if (Object.keys(errs).length > 0) {
       toast.error('Please fix the highlighted fields.')
@@ -62,23 +102,63 @@ export function Settings() {
 
     setSaving(true)
     try {
-      const updated = await updateSettings({
+      const payload = {
         default_interval_seconds: Number(form.default_interval_seconds),
         default_timeout_seconds: timeout,
         default_latency_threshold_ms: latency,
         max_concurrency: concurrency,
-      })
-      setForm({
-        default_interval_seconds: updated.default_interval_seconds,
-        default_timeout_seconds: updated.default_timeout_seconds,
-        default_latency_threshold_ms: updated.default_latency_threshold_ms,
-        max_concurrency: updated.max_concurrency,
-      })
+        telegram_enabled: !!form.telegram_enabled,
+        telegram_min_severity: form.telegram_min_severity,
+        telegram_chat_id: form.telegram_chat_id.trim(),
+        retention_days: retention,
+        alert_retention_days: alertRetention,
+      }
+      // Only send a token the user actually typed; an empty field keeps the stored one.
+      if (form.telegram_bot_token) {
+        payload.telegram_bot_token = form.telegram_bot_token
+      }
+      const updated = await updateSettings(payload)
+      setForm(settingsToForm(updated))
+      settings.refetch()
+      preview.refetch()
       toast.success('Settings saved.')
     } catch (err) {
       toast.error(apiErrorMessage(err, 'Could not save settings'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleTestNotification = async () => {
+    setTesting(true)
+    try {
+      const result = await testNotification()
+      if (result?.success) {
+        toast.success(result.detail || 'Test notification sent.')
+      } else {
+        toast.error(result?.detail || 'Test notification failed.')
+      }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not send test notification'))
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const handleCleanup = async () => {
+    setCleaning(true)
+    try {
+      const result = await cleanupHistory()
+      toast.success(
+        `Deleted ${formatNumber(result.records_deleted ?? 0)} records, ` +
+          `${formatNumber(result.alerts_deleted ?? 0)} alerts, ` +
+          `${formatNumber(result.anomalies_deleted ?? 0)} anomalies.`
+      )
+      preview.refetch()
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not clean up history'))
+    } finally {
+      setCleaning(false)
     }
   }
 
@@ -103,6 +183,7 @@ export function Settings() {
   }
 
   const s = settings.data
+  const telegramConfigured = !!s.telegram_configured
   const fieldError = (field) =>
     errors[field] ? <p className="mt-1 text-xs text-red-600">{errors[field]}</p> : null
 
@@ -110,86 +191,263 @@ export function Settings() {
     <div>
       <PageHeader
         title="Settings"
-        description="Defaults applied to new monitors, plus server status"
+        description="Monitor defaults, notifications, and data retention"
       />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <form onSubmit={handleSave} className="xl:col-span-2" noValidate>
-          <div className="card p-5">
-            <h2 className="mb-1 text-sm font-semibold text-zinc-900">Monitor defaults</h2>
-            <p className="mb-5 text-xs text-zinc-500">
-              These values pre-fill the form when you create a new monitor. Existing monitors are not changed.
-            </p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="label" htmlFor="default_interval_seconds">
-                  Default check interval
-                </label>
-                <select
-                  id="default_interval_seconds"
-                  className="input"
-                  value={form?.default_interval_seconds ?? 300}
-                  onChange={set('default_interval_seconds')}
-                >
-                  {INTERVAL_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                {fieldError('default_interval_seconds')}
-              </div>
-              <div>
-                <label className="label" htmlFor="default_timeout_seconds">
-                  Default timeout (seconds)
-                </label>
-                <input
-                  id="default_timeout_seconds"
-                  type="number"
-                  min={1}
-                  max={120}
-                  step={1}
-                  className="input"
-                  value={form?.default_timeout_seconds ?? 10}
-                  onChange={set('default_timeout_seconds')}
-                />
-                {fieldError('default_timeout_seconds')}
-              </div>
-              <div>
-                <label className="label" htmlFor="default_latency_threshold_ms">
-                  Default latency threshold (ms)
-                </label>
-                <input
-                  id="default_latency_threshold_ms"
-                  type="number"
-                  min={0}
-                  step={100}
-                  className="input"
-                  value={form?.default_latency_threshold_ms ?? 3000}
-                  onChange={set('default_latency_threshold_ms')}
-                />
-                {fieldError('default_latency_threshold_ms')}
-                <p className="mt-1 text-xs text-zinc-500">Responses slower than this raise an anomaly.</p>
-              </div>
-              <div>
-                <label className="label" htmlFor="max_concurrency">
-                  Max concurrent checks
-                </label>
-                <input
-                  id="max_concurrency"
-                  type="number"
-                  min={1}
-                  max={100}
-                  step={1}
-                  className="input"
-                  value={form?.max_concurrency ?? 10}
-                  onChange={set('max_concurrency')}
-                />
-                {fieldError('max_concurrency')}
-                <p className="mt-1 text-xs text-zinc-500">Upper bound for simultaneous scheduled checks.</p>
+          <div className="space-y-6">
+            {/* Monitor defaults */}
+            <div className="card p-5">
+              <h2 className="mb-1 text-sm font-semibold text-zinc-900">Monitor defaults</h2>
+              <p className="mb-5 text-xs text-zinc-500">
+                These values pre-fill the form when you create a new monitor. Existing monitors are not changed.
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="default_interval_seconds">
+                    Default check interval
+                  </label>
+                  <select
+                    id="default_interval_seconds"
+                    className="input"
+                    value={form?.default_interval_seconds ?? 300}
+                    onChange={set('default_interval_seconds')}
+                  >
+                    {INTERVAL_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  {fieldError('default_interval_seconds')}
+                </div>
+                <div>
+                  <label className="label" htmlFor="default_timeout_seconds">
+                    Default timeout (seconds)
+                  </label>
+                  <input
+                    id="default_timeout_seconds"
+                    type="number"
+                    min={1}
+                    max={120}
+                    step={1}
+                    className="input"
+                    value={form?.default_timeout_seconds ?? 10}
+                    onChange={set('default_timeout_seconds')}
+                  />
+                  {fieldError('default_timeout_seconds')}
+                </div>
+                <div>
+                  <label className="label" htmlFor="default_latency_threshold_ms">
+                    Default latency threshold (ms)
+                  </label>
+                  <input
+                    id="default_latency_threshold_ms"
+                    type="number"
+                    min={0}
+                    step={100}
+                    className="input"
+                    value={form?.default_latency_threshold_ms ?? 3000}
+                    onChange={set('default_latency_threshold_ms')}
+                  />
+                  {fieldError('default_latency_threshold_ms')}
+                  <p className="mt-1 text-xs text-zinc-500">Responses slower than this raise an anomaly.</p>
+                </div>
+                <div>
+                  <label className="label" htmlFor="max_concurrency">
+                    Max concurrent checks
+                  </label>
+                  <input
+                    id="max_concurrency"
+                    type="number"
+                    min={1}
+                    max={100}
+                    step={1}
+                    className="input"
+                    value={form?.max_concurrency ?? 10}
+                    onChange={set('max_concurrency')}
+                  />
+                  {fieldError('max_concurrency')}
+                  <p className="mt-1 text-xs text-zinc-500">Upper bound for simultaneous scheduled checks.</p>
+                </div>
               </div>
             </div>
-            <div className="mt-6 flex justify-end">
+
+            {/* Telegram notifications */}
+            <div className="card p-5">
+              <h2 className="mb-1 text-sm font-semibold text-zinc-900">Telegram notifications</h2>
+              <p className="mb-5 text-xs text-zinc-500">
+                Send alert notifications to a Telegram chat.
+              </p>
+              <div className="space-y-4">
+                <label className="flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={form?.telegram_enabled ?? false}
+                    onChange={set('telegram_enabled')}
+                    className="mt-0.5 h-4 w-4 rounded border-zinc-300 accent-zinc-900"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-zinc-900">Enable Telegram notifications</span>
+                    <span className="block text-xs text-zinc-500">
+                      Alerts are sent to the configured chat when enabled.
+                    </span>
+                  </span>
+                </label>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="label" htmlFor="telegram_bot_token">
+                      Bot token
+                    </label>
+                    <input
+                      id="telegram_bot_token"
+                      type="password"
+                      className="input font-mono"
+                      placeholder="123456:ABC-DEF…"
+                      value={form?.telegram_bot_token ?? ''}
+                      onChange={set('telegram_bot_token')}
+                      autoComplete="off"
+                    />
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
+                      {telegramConfigured ? (
+                        <>
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                          Configured — leave empty to keep the stored token.
+                        </>
+                      ) : (
+                        'The stored token is never shown.'
+                      )}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="telegram_chat_id">
+                      Chat ID
+                    </label>
+                    <input
+                      id="telegram_chat_id"
+                      type="text"
+                      className="input font-mono"
+                      placeholder="123456789"
+                      value={form?.telegram_chat_id ?? ''}
+                      onChange={set('telegram_chat_id')}
+                      autoComplete="off"
+                    />
+                    <p className="mt-1 text-xs text-zinc-500">
+                      The chat or group that receives notifications.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="telegram_min_severity">
+                      Minimum severity
+                    </label>
+                    <select
+                      id="telegram_min_severity"
+                      className="input"
+                      value={form?.telegram_min_severity ?? 'warning'}
+                      onChange={set('telegram_min_severity')}
+                    >
+                      {SEVERITY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    {fieldError('telegram_min_severity')}
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Only alerts at or above this severity send a notification.
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500">
+                  Create a bot with @BotFather, message it once, then get your chat ID from getUpdates.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleTestNotification}
+                    disabled={testing || !telegramConfigured}
+                  >
+                    <Send className="h-4 w-4" />
+                    {testing ? 'Sending…' : 'Send test notification'}
+                  </button>
+                  {!telegramConfigured && (
+                    <p className="text-xs text-zinc-500">
+                      Save a bot token and chat ID first to enable the test.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Data retention */}
+            <div className="card p-5">
+              <h2 className="mb-1 text-sm font-semibold text-zinc-900">Data retention</h2>
+              <p className="mb-5 text-xs text-zinc-500">
+                Old data is deleted automatically after the retention period.
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="retention_days">
+                    Check history retention (days)
+                  </label>
+                  <input
+                    id="retention_days"
+                    type="number"
+                    min={7}
+                    max={365}
+                    step={1}
+                    className="input"
+                    value={form?.retention_days ?? 90}
+                    onChange={set('retention_days')}
+                  />
+                  {fieldError('retention_days')}
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Check records and their anomalies older than this are deleted.
+                  </p>
+                </div>
+                <div>
+                  <label className="label" htmlFor="alert_retention_days">
+                    Resolved alert retention (days)
+                  </label>
+                  <input
+                    id="alert_retention_days"
+                    type="number"
+                    min={30}
+                    max={1095}
+                    step={1}
+                    className="input"
+                    value={form?.alert_retention_days ?? 365}
+                    onChange={set('alert_retention_days')}
+                  />
+                  {fieldError('alert_retention_days')}
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Resolved alerts older than this are deleted. Active alerts are kept.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-5">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleCleanup}
+                  disabled={cleaning}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {cleaning ? 'Cleaning up…' : 'Clean up now'}
+                </button>
+                {preview.data && (
+                  <p className="text-xs text-zinc-500">
+                    Ready to delete: {formatNumber(preview.data.records_deleted ?? 0)} records,{' '}
+                    {formatNumber(preview.data.alerts_deleted ?? 0)} alerts,{' '}
+                    {formatNumber(preview.data.anomalies_deleted ?? 0)} anomalies.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
               <button type="submit" className="btn-primary" disabled={saving}>
                 <Save className="h-4 w-4" />
                 {saving ? 'Saving…' : 'Save settings'}

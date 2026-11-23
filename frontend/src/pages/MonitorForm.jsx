@@ -37,6 +37,7 @@ const EMPTY_FORM = {
   interval_seconds: 300,
   expected_status_codes: '200',
   latency_threshold_ms: 3000,
+  alert_after_failures: 2,
   expected_fields: '',
   check_zero_records: false,
   max_response_size_bytes: 1048576,
@@ -54,6 +55,7 @@ function monitorToForm(m) {
     interval_seconds: m.interval_seconds ?? 300,
     expected_status_codes: (m.expected_status_codes || [200]).join(', '),
     latency_threshold_ms: m.latency_threshold_ms ?? 3000,
+    alert_after_failures: m.alert_after_failures ?? 2,
     expected_fields: (m.expected_fields || []).join(', '),
     check_zero_records: !!m.check_zero_records,
     max_response_size_bytes: m.max_response_size_bytes ?? 1048576,
@@ -109,6 +111,11 @@ function validate(form) {
   const latency = Number(form.latency_threshold_ms)
   if (!Number.isFinite(latency) || latency < 0) {
     errors.latency_threshold_ms = 'Latency threshold must be 0 or more milliseconds.'
+  }
+
+  const alertAfter = Number(form.alert_after_failures)
+  if (!Number.isInteger(alertAfter) || alertAfter < 1 || alertAfter > 5) {
+    errors.alert_after_failures = 'Alert after failures must be a whole number between 1 and 5.'
   }
 
   const maxSize = Number(form.max_response_size_bytes)
@@ -205,6 +212,7 @@ export function MonitorForm() {
       expected_fields: parseCommaList(form.expected_fields),
       check_zero_records: form.check_zero_records,
       latency_threshold_ms: Number(form.latency_threshold_ms),
+      alert_after_failures: Number(form.alert_after_failures),
       max_response_size_bytes: Number(form.max_response_size_bytes),
     }
   }, [form, showBody])
@@ -488,6 +496,27 @@ export function MonitorForm() {
                 onChange={set('max_response_size_bytes')}
               />
               {fieldError('max_response_size_bytes')}
+            </div>
+            <div>
+              <label className="label" htmlFor="alert_after_failures">
+                Alert after consecutive failures
+              </label>
+              <select
+                id="alert_after_failures"
+                className="input"
+                value={form.alert_after_failures}
+                onChange={set('alert_after_failures')}
+              >
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>
+                    {n} {n === 1 ? 'failure' : 'failures'}
+                  </option>
+                ))}
+              </select>
+              {fieldError('alert_after_failures')}
+              <p className="mt-1 text-xs text-zinc-500">
+                A single failed check records an anomaly; an alert is created only after this many consecutive failures.
+              </p>
             </div>
           </div>
         </section>

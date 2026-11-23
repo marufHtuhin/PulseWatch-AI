@@ -35,6 +35,7 @@ from app.database.base import Base  # noqa: E402
 from app.database.connection import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.monitor import Monitor  # noqa: E402
+from app.services import monitoring_service  # noqa: E402
 
 PUBLIC_IP = ipaddress.ip_address("93.184.216.34")  # example.com (documentation IP)
 TEST_URL = "https://example.com/api"
@@ -81,6 +82,22 @@ def mock_dns(monkeypatch):
         return [PUBLIC_IP]
 
     monkeypatch.setattr(security, "_resolve_all", _fake_resolve)
+
+
+# --- TLS cert fetch (stubbed by default) ------------------------------------
+
+@pytest.fixture(autouse=True)
+def mock_cert_fetch(monkeypatch):
+    """``run_check`` refreshes the TLS cert expiry for https monitors via a
+    real socket call; stub it to "unknown" so the mocked-HTTP tests never
+    touch the network for certs. SSL tests re-patch
+    ``monitoring_service.fetch_cert_expiry`` themselves; the later patch wins.
+    """
+
+    def _no_cert(hostname, port=443, timeout=10):  # noqa: ARG001
+        return None
+
+    monkeypatch.setattr(monitoring_service, "fetch_cert_expiry", _no_cert)
 
 
 # --- monitor helpers --------------------------------------------------------

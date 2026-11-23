@@ -7,13 +7,18 @@ from tests.conftest import json_response_handler, mock_client_factory
 
 
 async def _failing_check(db, monitor_id: int):
-    """One check that always produces an HTTP_ERROR anomaly + alert."""
+    """One check that always produces an HTTP_ERROR anomaly + alert.
+
+    Monitors in this file use alert_after_failures=1 so a single failing
+    check creates the alert (the default threshold is 2 — see
+    test_consecutive_failures.py for the gating behaviour itself).
+    """
     factory = mock_client_factory(json_response_handler(status=500, payload={}))
     return await run_check(db, monitor_id, client_factory=factory)
 
 
 async def test_alert_created_on_anomaly_with_fallback_content(db, make_monitor):
-    monitor = make_monitor(name="Flaky API")
+    monitor = make_monitor(alert_after_failures=1, name="Flaky API")
     outcome = await _failing_check(db, monitor.id)
 
     assert len(outcome.alerts_created) == 1
@@ -34,7 +39,7 @@ async def test_alert_created_on_anomaly_with_fallback_content(db, make_monitor):
 
 
 async def test_dedup_bumps_occurrence_count_instead_of_new_alert(db, make_monitor):
-    monitor = make_monitor()
+    monitor = make_monitor(alert_after_failures=1, )
     first = await _failing_check(db, monitor.id)
     second = await _failing_check(db, monitor.id)
     third = await _failing_check(db, monitor.id)
@@ -51,7 +56,7 @@ async def test_dedup_bumps_occurrence_count_instead_of_new_alert(db, make_monito
 
 
 async def test_dedup_still_applies_to_acknowledged_alerts(client, db, make_monitor):
-    monitor = make_monitor()
+    monitor = make_monitor(alert_after_failures=1, )
     await _failing_check(db, monitor.id)
     alert = db.query(Alert).first()
     ack = client.patch(f"/api/alerts/{alert.id}/acknowledge")
@@ -66,7 +71,7 @@ async def test_dedup_still_applies_to_acknowledged_alerts(client, db, make_monit
 
 
 async def test_new_alert_created_after_previous_resolved(client, db, make_monitor):
-    monitor = make_monitor()
+    monitor = make_monitor(alert_after_failures=1, )
     await _failing_check(db, monitor.id)
     alert = db.query(Alert).first()
     client.patch(f"/api/alerts/{alert.id}/resolve")
@@ -82,7 +87,7 @@ async def test_new_alert_created_after_previous_resolved(client, db, make_monito
 
 
 async def test_different_anomaly_types_create_separate_alerts(db, make_monitor):
-    monitor = make_monitor(latency_threshold_ms=100)
+    monitor = make_monitor(alert_after_failures=1, latency_threshold_ms=100)
     # First a slow check (HIGH_RESPONSE_TIME), then a 500 (HTTP_ERROR).
     slow = mock_client_factory(json_response_handler(delay=0.12))
     await run_check(db, monitor.id, client_factory=slow)
@@ -96,7 +101,7 @@ async def test_different_anomaly_types_create_separate_alerts(db, make_monitor):
 # --- lifecycle endpoints ----------------------------------------------------
 
 async def test_acknowledge_sets_timestamp_and_is_idempotent(client, db, make_monitor):
-    monitor = make_monitor()
+    monitor = make_monitor(alert_after_failures=1, )
     await _failing_check(db, monitor.id)
     alert = db.query(Alert).first()
 
@@ -114,7 +119,7 @@ async def test_acknowledge_sets_timestamp_and_is_idempotent(client, db, make_mon
 
 
 async def test_resolve_sets_timestamp(client, db, make_monitor):
-    monitor = make_monitor()
+    monitor = make_monitor(alert_after_failures=1, )
     await _failing_check(db, monitor.id)
     alert = db.query(Alert).first()
 
@@ -131,7 +136,7 @@ async def test_resolve_sets_timestamp(client, db, make_monitor):
 
 
 async def test_acknowledge_on_resolved_alert_is_400(client, db, make_monitor):
-    monitor = make_monitor()
+    monitor = make_monitor(alert_after_failures=1, )
     await _failing_check(db, monitor.id)
     alert = db.query(Alert).first()
     client.patch(f"/api/alerts/{alert.id}/resolve")
@@ -152,7 +157,7 @@ def test_alert_lifecycle_404s(client):
 async def test_alert_detail_includes_monitor_anomaly_and_record(
     client, db, make_monitor
 ):
-    monitor = make_monitor(name="Detail API", url="https://example.com/detail")
+    monitor = make_monitor(alert_after_failures=1, name="Detail API", url="https://example.com/detail")
     await _failing_check(db, monitor.id)
     alert = db.query(Alert).first()
 
@@ -169,8 +174,8 @@ async def test_alert_detail_includes_monitor_anomaly_and_record(
 
 
 async def test_alert_list_filters(client, db, make_monitor):
-    m1 = make_monitor(name="M1")
-    m2 = make_monitor(name="M2")
+    m1 = make_monitor(alert_after_failures=1, name="M1")
+    m2 = make_monitor(alert_after_failures=1, name="M2")
     await _failing_check(db, m1.id)  # high severity, active
     await _failing_check(db, m2.id)
     alert2 = db.query(Alert).filter(Alert.monitor_id == m2.id).first()
@@ -201,8 +206,8 @@ async def test_alert_list_filters(client, db, make_monitor):
 
 
 async def test_alert_history_returns_only_resolved(client, db, make_monitor):
-    m1 = make_monitor(name="M1")
-    m2 = make_monitor(name="M2")
+    m1 = make_monitor(alert_after_failures=1, name="M1")
+    m2 = make_monitor(alert_after_failures=1, name="M2")
     await _failing_check(db, m1.id)
     await _failing_check(db, m2.id)
     alert2 = db.query(Alert).filter(Alert.monitor_id == m2.id).first()

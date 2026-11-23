@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./pulsewatch.db"
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.0-flash"
+    # Telegram notifications: env fallback for the credentials. A value
+    # persisted in AppSettings (via the settings API) wins over env.
+    TELEGRAM_BOT_TOKEN: str | None = None
+    TELEGRAM_CHAT_ID: str | None = None
     FRONTEND_URL: str = "http://localhost:5173"
     ALLOW_LOCAL_URLS: bool = False
     MAX_CONCURRENCY: int = 10

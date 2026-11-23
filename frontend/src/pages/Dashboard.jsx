@@ -108,7 +108,7 @@ export function Dashboard() {
           {
             title: 'Avg response time',
             value: formatMs(s?.avg_response_time_ms),
-            subtitle: 'Across all monitors',
+            subtitle: `P50 ${formatMs(s?.p50_response_time_ms)} · P95 ${formatMs(s?.p95_response_time_ms)} · P99 ${formatMs(s?.p99_response_time_ms)}`,
           },
           {
             title: 'Active alerts',
@@ -177,13 +177,14 @@ export function Dashboard() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] border-collapse">
+              <table className="w-full min-w-[600px] border-collapse">
                 <thead>
                   <tr className="border-b border-zinc-200">
                     <th className="th">Monitor</th>
                     <th className="th">Status</th>
                     <th className="th">Uptime</th>
                     <th className="th">Avg latency</th>
+                    <th className="th">P95 latency</th>
                     <th className="th">Last code</th>
                     <th className="th">Alerts</th>
                   </tr>
@@ -202,6 +203,7 @@ export function Dashboard() {
                       </td>
                       <td className="td font-mono tabular-nums">{formatUptime(m.uptime_pct)}</td>
                       <td className="td font-mono tabular-nums">{formatMs(m.avg_response_time_ms)}</td>
+                      <td className="td font-mono tabular-nums">{formatMs(m.p95_response_time_ms)}</td>
                       <td className="td font-mono">{m.last_status_code ?? '—'}</td>
                       <td className="td">
                         {m.active_alerts > 0 ? (

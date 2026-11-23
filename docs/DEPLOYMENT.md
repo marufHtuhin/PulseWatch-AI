@@ -74,12 +74,16 @@ string of the form
    | `LOG_LEVEL` | `INFO` |
    | `GEMINI_API_KEY` | (optional) your Gemini key, or leave unset for fallback templates |
    | `GEMINI_MODEL` | `gemini-2.0-flash` |
+   | `TELEGRAM_BOT_TOKEN` | (optional) fallback bot token for Telegram notifications; can also be set in the app's Settings UI, which takes precedence |
+   | `TELEGRAM_CHAT_ID` | (optional) fallback chat ID for Telegram notifications; can also be set in the app's Settings UI, which takes precedence |
    | `ALLOW_LOCAL_URLS` | `false` (never `true` in production) |
    | `MAX_CONCURRENCY` | `10` |
    | `PULSEWATCH_TESTING` | `0` |
 
 5. Deploy. On first start the container runs `alembic upgrade head`,
-   which creates the five tables.
+   which creates the five tables and applies the `0002_v3_upgrades`
+   migration (Telegram settings, consecutive-failure counters, and
+   SSL expiry columns) — no extra step is needed.
 6. Verify: `https://<your-service>.onrender.com/health` should return
    `{"status": "ok", "db": "ok", "scheduler": "running"}` and
    `https://<your-service>.onrender.com/docs` should show the API docs.
@@ -140,8 +144,8 @@ string of the form
   automatically.
 - **Breaking schema changes:** create a new Alembic revision
   (`alembic revision --autogenerate -m "..."`) and commit it; the next
-  backend deploy applies it. Never edit the existing `0001_initial`
-  migration after it has run against a real database.
+  backend deploy applies it. Never edit the existing `0001_initial` or
+  `0002_v3_upgrades` migration after it has run against a real database.
 
 ## 6. Security notes for production
 

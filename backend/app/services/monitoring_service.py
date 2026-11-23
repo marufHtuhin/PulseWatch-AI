@@ -3,17 +3,30 @@
 Pipeline for a single check:
   1. Load the monitor + recent response-time history (for the historical rule).
   2. Run the real HTTP check (SSRF-validated, redirect-safe).
-  3. Store a MonitoringRecord (metadata only — never a response body).
-  4. Run the 9 deterministic anomaly rules; store each finding.
-  5. Update the monitor's last_* snapshot fields.
-  6. Per anomaly: dedup against an open alert, or create a new alert
+  3. Refresh the TLS cert expiry for https monitors (at most once per 24h;
+     failures are ignored — cert lookup never fails a check).
+  4. Store a MonitoringRecord (metadata only — never a response body).
+  5. Run the 11 deterministic anomaly rules; store each finding.
+  6. Update the monitor's last_* snapshot fields + consecutive failures.
+  7. Per anomaly: dedup against an open alert, or create a new alert
      (Gemini content when configured, deterministic fallback otherwise).
+     On a FAILED check a new alert is created only once the monitor's
+     consecutive-failure threshold is reached; dedup bumps are never
+     gated, and alerts on successful checks (slow response, zero
+     records, ...) are never gated either — consecutive_failures is 0
+     by definition on success, so gating them would silence those
+     alerts entirely.
+  8. After commit, notify: new alerts go to Telegram (when enabled and
+     severe enough), and a recovery message goes out when a monitor
+     that was down comes back up with an open alert. Notification
+     failures never break monitoring.
 """
 from __future__ import annotations
 
 import asyncio
 import statistics
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Callable
 
 import httpx
@@ -21,21 +34,32 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger, sanitize_url
+from app.models.alert import Alert
 from app.models.anomaly import Anomaly
 from app.models.monitor import Monitor
 from app.models.monitoring_record import MonitoringRecord
 from app.schemas.record import MonitoringRecordOut, record_to_response
 from app.services.ai_service import generate_alert_content
-from app.services.alert_service import bump_alert, create_alert, find_open_alert
+from app.services.alert_service import (
+    OPEN_STATUSES,
+    bump_alert,
+    create_alert,
+    find_open_alert,
+)
 from app.services.anomaly_service import (
     HISTORY_WINDOW,
     AnomalyContext,
     detect_anomalies,
 )
 from app.services.http_service import find_missing_fields, perform_check
-from app.utils.time import utcnow
+from app.services.notification_service import notify_new_alert, notify_recovery
+from app.services.ssl_service import fetch_cert_expiry, https_host_port
+from app.utils.time import to_naive_utc, utcnow
 
 logger = get_logger("monitoring")
+
+# How often a monitor's TLS cert expiry may be re-fetched.
+CERT_REFRESH_INTERVAL = timedelta(hours=24)
 
 
 class MonitorNotFoundError(ValueError):
@@ -67,16 +91,92 @@ def _baseline_stats(history_ms: list[float]) -> dict | None:
     }
 
 
+async def _cert_expiry_for_check(
+    monitor: Monitor, now: datetime
+) -> datetime | None:
+    """The cert expiry to evaluate this check's SSL rule against.
+
+    - http URLs: None (SSL monitoring is https-only).
+    - https with a fresh (< 24h) cert check: the stored expiry.
+    - https with a stale check: fetch in a worker thread (blocking socket
+      work must not stall the event loop); on success store the new expiry
+      + check time, on failure keep the stored expiry — a transient fetch
+      failure must not silence an expiring-cert alert, and an expired cert
+      is detected exactly this way (its handshake fails, but the stored
+      expiry keeps aging past its date).
+    Never raises.
+    """
+    target = https_host_port(monitor.url)
+    if target is None:
+        return None
+    hostname, port = target
+    if monitor.cert_checked_at is not None:
+        age = to_naive_utc(now) - to_naive_utc(monitor.cert_checked_at)
+        if age < CERT_REFRESH_INTERVAL:
+            return monitor.cert_expires_at
+    try:
+        expiry = await asyncio.to_thread(fetch_cert_expiry, hostname, port)
+    except Exception:  # noqa: BLE001 - cert fetch must never break the check
+        logger.warning("cert refresh failed monitor_id=%s", monitor.id)
+        return monitor.cert_expires_at
+    if expiry is None:
+        return monitor.cert_expires_at
+    monitor.cert_expires_at = expiry
+    monitor.cert_checked_at = now
+    return expiry
+
+
+async def _notify_after_check(
+    db: Session,
+    monitor: Monitor,
+    alert_ids: list[int],
+    is_success: bool,
+    previous_status: str,
+    response_time_ms: float | None,
+    now: datetime,
+    notification_client_factory: Callable[[], httpx.AsyncClient] | None,
+) -> None:
+    """Telegram notifications for this check. Never raises — every failure
+    is caught by the caller, and the notification service itself never
+    raises either."""
+    for alert_id in alert_ids:
+        alert = db.get(Alert, alert_id)
+        if alert is not None:
+            await notify_new_alert(
+                db, alert, monitor, client_factory=notification_client_factory
+            )
+    if is_success and previous_status == "down":
+        has_open_alert = (
+            db.query(Alert)
+            .filter(
+                Alert.monitor_id == monitor.id,
+                Alert.status.in_(OPEN_STATUSES),
+            )
+            .first()
+            is not None
+        )
+        if has_open_alert:
+            await notify_recovery(
+                db,
+                monitor,
+                response_time_ms,
+                now,
+                client_factory=notification_client_factory,
+            )
+
+
 async def run_check(
     db: Session,
     monitor_id: int,
     client_factory: Callable[[], httpx.AsyncClient] | None = None,
     ai_client_factory: Callable[[], httpx.AsyncClient] | None = None,
+    notification_client_factory: Callable[[], httpx.AsyncClient] | None = None,
 ) -> CheckOutcome:
     """Run one full check for a monitor and persist everything it produces."""
     monitor = db.get(Monitor, monitor_id)
     if monitor is None:
         raise MonitorNotFoundError(f"Monitor {monitor_id} not found")
+    previous_status = monitor.last_status
 
     # History is read BEFORE the current record is inserted.
     history_rows = (
@@ -114,6 +214,14 @@ async def run_check(
     )
 
     now = utcnow()
+    # No cert fetch for an SSRF-blocked URL: the policy rejected this host,
+    # so the check must not open a connection to it by another path.
+    cert_expires_at = (
+        await _cert_expiry_for_check(monitor, now)
+        if result.error_kind != "ssrf"
+        else None
+    )
+
     record = MonitoringRecord(
         monitor_id=monitor.id,
         response_time_ms=result.response_time_ms,
@@ -144,6 +252,8 @@ async def run_check(
             response_size_bytes=result.response_size_bytes,
             max_response_size_bytes=monitor.max_response_size_bytes,
             history_ms=history_ms,
+            cert_expires_at=cert_expires_at,
+            now=now,
         )
     )
     anomalies: list[Anomaly] = []
@@ -160,6 +270,10 @@ async def run_check(
         anomalies.append(anomaly)
     db.flush()
 
+    if is_success:
+        monitor.consecutive_failures = 0
+    else:
+        monitor.consecutive_failures += 1
     monitor.last_checked_at = now
     monitor.last_status = "up" if is_success else "down"
     monitor.last_response_time_ms = result.response_time_ms
@@ -173,6 +287,13 @@ async def run_check(
         "records_returned": result.records_returned,
         "baseline": _baseline_stats(history_ms),
     }
+    # Gate: on a FAILED check, a new alert is created only once the
+    # consecutive-failure threshold is reached. Anomalies are still
+    # recorded on every failed check, and dedup bumps still happen.
+    gate_new_alerts = (
+        not is_success
+        and monitor.consecutive_failures < monitor.alert_after_failures
+    )
     alerts_created: list[int] = []
     for anomaly, finding in zip(anomalies, findings):
         existing = find_open_alert(db, monitor.id, anomaly.anomaly_type)
@@ -185,11 +306,30 @@ async def run_check(
                 existing.id,
                 existing.occurrence_count,
             )
+        elif gate_new_alerts:
+            logger.info(
+                "alert suppressed monitor_id=%s anomaly=%s failures=%s threshold=%s",
+                monitor.id,
+                anomaly.anomaly_type,
+                monitor.consecutive_failures,
+                monitor.alert_after_failures,
+            )
         else:
             # Gemini is called ONLY when a new alert is actually created.
             content, ai_generated = await generate_alert_content(
                 monitor, finding, metrics, client_factory=ai_client_factory
             )
+            if not is_success:
+                failures = monitor.consecutive_failures
+                noun = "check" if failures == 1 else "checks"
+                content = content.model_copy(
+                    update={
+                        "summary": (
+                            f"{content.summary} Failed {failures} "
+                            f"consecutive {noun}."
+                        )
+                    }
+                )
             alert = create_alert(db, monitor, anomaly, content, ai_generated)
             db.flush()
             alerts_created.append(alert.id)
@@ -211,6 +351,23 @@ async def run_check(
         len(anomalies),
         len(alerts_created),
     )
+
+    # Notifications run after the commit and must never break monitoring.
+    try:
+        await _notify_after_check(
+            db,
+            monitor,
+            alerts_created,
+            is_success,
+            previous_status,
+            result.response_time_ms,
+            now,
+            notification_client_factory,
+        )
+    except Exception:  # noqa: BLE001 - monitoring already succeeded
+        logger.warning(
+            "notification step failed monitor_id=%s", monitor.id
+        )
     return CheckOutcome(record=record, anomalies=anomalies, alerts_created=alerts_created)
 
 
@@ -220,6 +377,7 @@ async def run_batch_checks(
     max_concurrency: int | None = None,
     client_factory: Callable[[], httpx.AsyncClient] | None = None,
     ai_client_factory: Callable[[], httpx.AsyncClient] | None = None,
+    notification_client_factory: Callable[[], httpx.AsyncClient] | None = None,
 ) -> list[BatchCheckResult]:
     """Check many monitors concurrently (semaphore-bounded).
 
@@ -234,7 +392,11 @@ async def run_batch_checks(
             db = session_factory()
             try:
                 outcome = await run_check(
-                    db, monitor_id, client_factory, ai_client_factory
+                    db,
+                    monitor_id,
+                    client_factory,
+                    ai_client_factory,
+                    notification_client_factory,
                 )
                 # Serialize while the session is still open (lazy relationships).
                 return BatchCheckResult(

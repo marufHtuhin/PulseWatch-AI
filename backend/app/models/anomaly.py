@@ -25,9 +25,9 @@ class Anomaly(Base):
     record_id: Mapped[int] = mapped_column(
         ForeignKey("monitoring_records.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # HIGH_RESPONSE_TIME | HTTP_ERROR | TIMEOUT | ZERO_RECORDS |
-    # INVALID_RESPONSE | MISSING_FIELDS | LARGE_RESPONSE |
-    # UNEXPECTED_STATUS | HISTORICAL_ANOMALY
+    # HIGH_RESPONSE_TIME | HTTP_ERROR | TIMEOUT | NETWORK_ERROR |
+    # ZERO_RECORDS | INVALID_RESPONSE | MISSING_FIELDS | LARGE_RESPONSE |
+    # UNEXPECTED_STATUS | HISTORICAL_ANOMALY | SSL_EXPIRING
     anomaly_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     # info | warning | high | critical
     severity: Mapped[str] = mapped_column(String(20), nullable=False)

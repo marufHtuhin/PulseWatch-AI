@@ -1,6 +1,7 @@
 """Monitor request/response schemas."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -8,6 +9,7 @@ from pydantic import Field, field_validator
 from app.core.security import mask_headers
 from app.models.monitor import Monitor
 from app.schemas.common import APIModel, UtcDateTime
+from app.utils.time import to_naive_utc, utcnow
 
 Method = Literal["GET", "POST", "PUT", "DELETE"]
 IntervalSeconds = Literal[30, 60, 300, 900, 1800]
@@ -27,6 +29,8 @@ class MonitorBase(APIModel):
     latency_threshold_ms: int = Field(default=3000, ge=1)
     max_response_size_bytes: int = Field(default=1048576, ge=1)
     is_active: bool = True
+    # A new alert is created only after this many consecutive failed checks.
+    alert_after_failures: int = Field(default=2, ge=1, le=5)
 
     @field_validator("url")
     @classmethod
@@ -68,10 +72,28 @@ class MonitorResponse(MonitorBase):
     last_status: str = "unknown"
     last_response_time_ms: float | None = None
     last_status_code: int | None = None
+    consecutive_failures: int = 0
+    cert_expires_at: UtcDateTime | None = None
+    # Computed from cert_expires_at (not a column); None when no expiry is
+    # stored. Negative when the certificate has already expired.
+    cert_days_remaining: float | None = None
+
+
+def cert_days_remaining(expires_at: datetime | None) -> float | None:
+    """Fractional days until the stored cert expiry, or None if unknown."""
+    if expires_at is None:
+        return None
+    delta = to_naive_utc(expires_at) - to_naive_utc(utcnow())
+    return round(delta.total_seconds() / 86400, 1)
 
 
 def monitor_to_response(monitor: Monitor) -> MonitorResponse:
-    """Build a response with secret header values masked."""
+    """Build a response with secret header values masked.
+
+    Extra table columns (e.g. cert_checked_at) are ignored by the schema —
+    APIModel uses Pydantic's default extra='ignore'.
+    """
     data = {c.key: getattr(monitor, c.key) for c in monitor.__table__.columns}
     data["headers"] = mask_headers(monitor.headers)
+    data["cert_days_remaining"] = cert_days_remaining(monitor.cert_expires_at)
     return MonitorResponse.model_validate(data)

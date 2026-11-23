@@ -21,6 +21,45 @@ from app.utils.time import utcnow
 MAX_PERFORMANCE_POINTS = 200
 
 
+def percentile(values: list[float], pct: float) -> float | None:
+    """The ``pct``-th percentile by linear interpolation.
+
+    Method: sort ascending, take rank ``(pct / 100) * (n - 1)``, and
+    linearly interpolate between the two surrounding values — the same
+    method as ``statistics.quantiles(data, n=100, method='inclusive')``
+    and numpy's ``'linear'``. A single value returns itself; an empty
+    list returns None (callers surface that as JSON null, never 0).
+    """
+    if not values:
+        return None
+    data = sorted(values)
+    if len(data) == 1:
+        return float(data[0])
+    rank = (pct / 100) * (len(data) - 1)
+    lower = int(rank)
+    upper = min(lower + 1, len(data) - 1)
+    fraction = rank - lower
+    return data[lower] * (1 - fraction) + data[upper] * fraction
+
+
+def _successful_response_times(
+    db: Session, day_ago, monitor_id: int | None = None
+) -> list[float]:
+    """Response times of successful checks in the 24h window.
+
+    Failed checks are excluded: a timeout's partial timing (or a missing
+    one) would distort latency percentiles.
+    """
+    query = db.query(MonitoringRecord.response_time_ms).filter(
+        MonitoringRecord.checked_at >= day_ago,
+        MonitoringRecord.is_success.is_(True),
+        MonitoringRecord.response_time_ms.isnot(None),
+    )
+    if monitor_id is not None:
+        query = query.filter(MonitoringRecord.monitor_id == monitor_id)
+    return [row[0] for row in query.all() if row[0] is not None]
+
+
 def get_summary(db: Session) -> DashboardSummary:
     now = utcnow()
     day_ago = now - timedelta(hours=24)
@@ -77,6 +116,10 @@ def get_summary(db: Session) -> DashboardSummary:
         )
         .scalar()
     )
+    success_rts = _successful_response_times(db, day_ago)
+    p50 = percentile(success_rts, 50)
+    p95 = percentile(success_rts, 95)
+    p99 = percentile(success_rts, 99)
     return DashboardSummary(
         total_monitors=total,
         active_monitors=active,
@@ -89,6 +132,9 @@ def get_summary(db: Session) -> DashboardSummary:
         avg_response_time_ms=round(float(avg_rt), 1) if avg_rt is not None else 0.0,
         total_checks_24h=total_checks_24h,
         failed_checks_24h=failed_checks_24h,
+        p50_response_time_ms=round(p50, 1) if p50 is not None else None,
+        p95_response_time_ms=round(p95, 1) if p95 is not None else None,
+        p99_response_time_ms=round(p99, 1) if p99 is not None else None,
     )
 
 
@@ -151,6 +197,9 @@ def get_health(db: Session) -> HealthResponse:
             .scalar()
             or 0
         )
+        p95 = percentile(
+            _successful_response_times(db, day_ago, monitor_id=monitor.id), 95
+        )
         items.append(
             MonitorHealthItem(
                 monitor_id=monitor.id,
@@ -158,6 +207,7 @@ def get_health(db: Session) -> HealthResponse:
                 status=monitor.last_status,
                 uptime_pct=uptime_pct,
                 avg_response_time_ms=round(float(avg_rt), 1) if avg_rt is not None else 0.0,
+                p95_response_time_ms=round(p95, 1) if p95 is not None else None,
                 last_status_code=monitor.last_status_code,
                 last_checked_at=monitor.last_checked_at,
                 active_alerts=active_alerts,

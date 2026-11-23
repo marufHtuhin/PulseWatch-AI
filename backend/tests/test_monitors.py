@@ -204,7 +204,8 @@ async def test_delete_cascades_records_anomalies_alerts(
     client, db, make_monitor
 ):
     # A failing check seeds a record + anomaly + alert for the monitor.
-    monitor = make_monitor()
+    # alert_after_failures=1 so the single failing check creates the alert.
+    monitor = make_monitor(alert_after_failures=1)
     monitor_id = monitor.id  # capture before the row is deleted
     factory = mock_client_factory(json_response_handler(status=500, payload={}))
     await run_check(db, monitor_id, client_factory=factory)

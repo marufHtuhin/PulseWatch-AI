@@ -35,6 +35,13 @@ class Monitor(Base):
     latency_threshold_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=3000)
     max_response_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=1048576)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    # New alerts are created only after this many consecutive failed checks
+    # (dedup bumps of an already-open alert are not gated).
+    alert_after_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # TLS certificate expiry (https monitors only), refreshed at most daily.
+    cert_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cert_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

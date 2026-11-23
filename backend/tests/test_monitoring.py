@@ -104,7 +104,8 @@ async def test_object_body_counts_records_from_data_key(db, make_monitor):
 # --- error scenarios --------------------------------------------------------
 
 async def test_500_response_is_http_error_and_marks_monitor_down(db, make_monitor):
-    monitor = make_monitor()
+    # alert_after_failures=1: this test asserts an alert on the first failure.
+    monitor = make_monitor(alert_after_failures=1)
     factory = mock_client_factory(json_response_handler(status=500, payload={}))
 
     outcome = await run_check(db, monitor.id, client_factory=factory)
@@ -266,7 +267,8 @@ async def test_post_check_sends_request_body(db, make_monitor):
 
 
 async def test_connect_error_marks_check_failed_without_status(db, make_monitor):
-    monitor = make_monitor()
+    # alert_after_failures=1: this test asserts an alert on the first failure.
+    monitor = make_monitor(alert_after_failures=1)
 
     async def handler(request: httpx.Request):
         raise httpx.ConnectError("connection refused", request=request)
@@ -351,7 +353,8 @@ async def test_api_check_endpoint_runs_real_pipeline(client, db, make_monitor, m
     import app.api.routes.monitors as monitors_route
     from app.services import monitoring_service
 
-    monitor = make_monitor()
+    # alert_after_failures=1: this test asserts an alert on the first failure.
+    monitor = make_monitor(alert_after_failures=1)
     factory = mock_client_factory(json_response_handler(status=500, payload={}))
 
     async def run_check_with_mock(db_session, monitor_id, **kwargs):  # noqa: ARG001

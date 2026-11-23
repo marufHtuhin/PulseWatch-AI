@@ -4,6 +4,8 @@ import { MethodBadge, StatusBadge } from './Badges'
 import { formatMs, timeAgo, truncate } from '../utils/format'
 
 export function MonitorCard({ monitor, onCheck, onToggle, onDelete, checking = false, busy = false }) {
+  const certDays = monitor.cert_days_remaining
+  const certExpiringSoon = certDays != null && certDays < 30
   return (
     <div className="card p-4 transition hover:border-zinc-300">
       <div className="flex items-start justify-between gap-3">
@@ -18,6 +20,20 @@ export function MonitorCard({ monitor, onCheck, onToggle, onDelete, checking = f
             <StatusBadge status={monitor.last_status} />
             {!monitor.is_active && (
               <span className="badge bg-zinc-100 text-zinc-500">Paused</span>
+            )}
+            {certExpiringSoon && (
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+                  certDays < 0 ? 'text-red-600' : 'text-amber-600'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${certDays < 0 ? 'bg-red-500' : 'bg-amber-500'}`}
+                />
+                {certDays < 0
+                  ? 'SSL certificate expired'
+                  : `SSL expires in ${certDays} ${certDays === 1 ? 'day' : 'days'}`}
+              </span>
             )}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">

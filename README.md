@@ -2,7 +2,7 @@
 
 API monitoring with anomaly detection and alerting. Add any HTTP endpoint
 as a monitor and PulseWatch checks it on a schedule, records every check,
-detects problems with 10 deterministic anomaly rules, and explains each
+detects problems with 11 deterministic anomaly rules, and explains each
 incident in plain language — with optional Gemini AI explanations, and
 deterministic fallback explanations when no AI key is configured.
 
@@ -18,13 +18,28 @@ and the dashboard all work with zero configuration.
 - **Real checks** — every check is a genuine HTTP request with timing,
   status, size, JSON validity, and record-count metadata. Response bodies
   are never stored.
-- **10 deterministic anomaly rules** — high response time (3 severity
+- **11 deterministic anomaly rules** — high response time (3 severity
   tiers), HTTP errors, timeouts, network errors, zero records, invalid
-  JSON, missing fields, oversized responses, unexpected status, and
-  historical deviation from a rolling baseline (needs ≥10 prior checks).
+  JSON, missing fields, oversized responses, unexpected status,
+  historical deviation from a rolling baseline (needs ≥10 prior checks),
+  and TLS certificate expiry (3 severity tiers by days remaining).
 - **Alerts** — deduplicated per (monitor, anomaly type) while open:
   a recurring problem bumps `occurrence_count` instead of creating new
   alerts. Acknowledge / resolve lifecycle with a resolved-alert history.
+- **Consecutive-failure alerting** — a new alert is created only after
+  a configurable number of consecutive failed checks (1–5, default 2),
+  so a single blip does not page you. Anomalies are still recorded on
+  every failed check, dedup bumps are unaffected, and a successful check
+  resets the counter.
+- **Telegram notifications** — new alerts at or above a configurable
+  minimum severity are sent to a Telegram chat, plus a recovery message
+  when a monitor comes back up. Dedup bumps never re-notify.
+- **SSL certificate expiry monitoring** — https monitors have their TLS
+  certificate expiry checked (at most once per 24h) and alert before
+  the certificate expires.
+- **Data retention** — check history and resolved alerts are pruned
+  automatically by a daily cleanup job, with configurable retention
+  windows and a manual cleanup + preview in Settings.
 - **Gemini AI explanations** (optional) — when configured, each new alert
   gets an AI-written title, summary, likely cause, and recommended action
   from metadata only (never response bodies). Any Gemini failure falls
@@ -34,13 +49,16 @@ and the dashboard all work with zero configuration.
   monitor never fails the batch).
 - **Scheduler** — one APScheduler interval job per active monitor;
   create/update/toggle/delete reschedule immediately.
-- **Dashboard** — summary stats, response-time trend chart, per-monitor
-  uptime/health, and alert lists, auto-refreshing every 30 seconds.
+- **Dashboard** — summary stats (including P50/P95/P99 latency
+  percentiles over successful checks in the last 24h), response-time
+  trend chart, per-monitor uptime/health (with per-monitor P95), and
+  alert lists, auto-refreshing every 30 seconds.
 - **SSRF protection** — DNS resolved at check time, every resolved IP
   validated (loopback/private/link-local/reserved/multicast/metadata all
   blocked), redirects re-validated on every hop (max 5).
 - **Settings** — persisted defaults for interval, timeout, latency
-  threshold, and batch concurrency.
+  threshold, and batch concurrency, plus Telegram notification settings
+  and data retention windows.
 
 ## Screenshots
 
@@ -86,14 +104,20 @@ Alerts:
                                 │   monitoring_service  (pipeline) │
                                 │   http_service        (SSRF-safe │
                                 │                        real HTTP) │
-                                │   anomaly_service     (10 rules) │
+                                │   anomaly_service     (11 rules) │
                                 │   alert_service       (dedup)    │
                                 │   ai_service          (Gemini +  │
                                 │                        fallback)  │
-                                │   dashboard_service   (aggreg.)  │
+                                │   dashboard_service   (aggreg.,  │
+                                │                        percentiles)│
+                                │   notification_service (Telegram)│
+                                │   retention_service   (cleanup)  │
+                                │   ssl_service         (cert      │
+                                │                        expiry)    │
                                 │                                  │
                                 │  APScheduler: 1 interval job per │
-                                │  active monitor                  │
+                                │  active monitor + daily 03:00    │
+                                │  UTC retention cleanup           │
                                 └──────────┬───────────────────────┘
                                            │ SQLAlchemy
                                 ┌──────────▼───────────────────────┐
@@ -111,13 +135,26 @@ Alerts:
 3. A real HTTP request runs with the monitor's method, headers, body, and
    timeout. Only metadata is kept: status, timing, size, content type,
    JSON validity, record count. **The response body is never stored.**
-4. A `MonitoringRecord` is saved and the monitor's `last_*` snapshot
-   (status, response time, status code, last checked) is updated.
-5. All 10 anomaly rules run against the result; each hit becomes an
+4. For https monitors, the TLS certificate expiry is refreshed (at most
+   once per 24h; a failed lookup never fails the check and keeps the
+   previously stored expiry).
+5. A `MonitoringRecord` is saved and the monitor's `last_*` snapshot
+   (status, response time, status code, last checked) is updated, along
+   with the consecutive-failure counter (reset to 0 on success,
+   incremented on failure).
+6. All 11 anomaly rules run against the result; each hit becomes an
    `Anomaly` row.
-6. Per anomaly: if an open alert already exists for (monitor, type), its
+7. Per anomaly: if an open alert already exists for (monitor, type), its
    `occurrence_count` is bumped; otherwise a new alert is created —
    Gemini content when configured, deterministic template otherwise.
+   On a failed check, a new alert is created only once the monitor's
+   consecutive-failure threshold (`alert_after_failures`, default 2)
+   is reached; dedup bumps and alerts on successful checks are not
+   gated.
+8. After the check commits, new alerts are sent to Telegram (when
+   enabled and severe enough) and a recovery message is sent if the
+   monitor just came back up. Notification failures never break
+   monitoring.
 
 ## Anomaly Rules
 
@@ -133,10 +170,17 @@ Alerts:
 | 8 | `LARGE_RESPONSE` | Response size above `max_response_size_bytes` | warning (<5x), high (≥5x) |
 | 9 | `UNEXPECTED_STATUS` | Non-error status outside `expected_status_codes` (e.g. 201 when 200 expected) | warning |
 | 10 | `HISTORICAL_ANOMALY` | Latency deviates >2σ from the rolling mean of recent checks | warning (2σ–3σ), high (>3σ) |
+| 11 | `SSL_EXPIRING` | TLS certificate expiry within 30 days (https monitors only) | warning (≤30 days), high (≤7 days), critical (expired) |
 
 Rule 10 needs **at least 10 prior checks** before it can fire, so a new
 monitor never produces false positives. With zero variance in history, it
 only fires on a >2x jump over the mean.
+
+Rule 11 reads the certificate expiry stored on the monitor, refreshed at
+most once every 24h. An expired certificate is still detected: its TLS
+handshake fails, so no new expiry is fetched, and the stored expiry keeps
+aging past its date. Http monitors and monitors with no stored expiry
+never produce this finding.
 
 All rules are deterministic: the same check input always yields the same
 findings. Each rule is a separate function in
@@ -161,18 +205,60 @@ findings. Each rule is a separate function in
 - Get a free key at [Google AI Studio](https://aistudio.google.com/)
   and set `GEMINI_API_KEY` in `backend/.env`.
 
+## Telegram notifications
+
+Alerts can be delivered to a Telegram chat. Setup:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the
+   bot token it gives you.
+2. Message your bot once (any text) so Telegram creates the chat.
+3. Get your chat ID by opening
+   `https://api.telegram.org/bot<your-bot-token>/getUpdates` in a browser
+   and reading the `chat.id` value from the result.
+4. In PulseWatch, open **Settings → Telegram notifications**, paste the
+   bot token and chat ID, choose a minimum severity, and enable
+   notifications. Use **Send test notification** to verify delivery
+   (the test works even before enabling).
+
+Credentials can also be set via the `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_CHAT_ID` environment variables; values saved in Settings win
+over the env vars. The bot token is never returned by the API and is
+never logged.
+
+Behaviour: only **new** alerts at or above the configured minimum
+severity (warning / high / critical, default high) send a notification;
+dedup bumps (occurrence-count increases) do not re-notify. A recovery
+message is sent when a monitor that was down comes back up with an open
+alert. If Telegram is unreachable, the failure is logged and monitoring
+continues — notifications never break checks.
+
+## Data retention
+
+Check history does not grow forever. A daily cleanup job runs at
+03:00 UTC and deletes:
+
+- `monitoring_records` (and their anomalies) older than the check-history
+  retention window — default **90 days** (configurable 7–365).
+- `resolved` alerts older than the resolved-alert retention window —
+  default **365 days** (configurable 30–1095).
+
+Active and acknowledged alerts are never deleted, however old. Both
+windows are configurable in **Settings → Data retention**, which also
+shows a preview of what a cleanup would delete and a **Clean up now**
+button to run it immediately.
+
 ## Database Schema
 
-Five tables, identical on MySQL and SQLite (one dialect-agnostic Alembic
-migration, `0001_initial`):
+Five tables, identical on MySQL and SQLite (two dialect-agnostic Alembic
+migrations: `0001_initial`, `0002_v3_upgrades`):
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `monitors` | Watched endpoints | `id`, `name`, `url`, `method`, `headers` (JSON, secrets stored verbatim — masked at the API boundary), `request_body`, `timeout_seconds`, `interval_seconds`, `expected_status_codes`, `expected_fields`, `check_zero_records`, `latency_threshold_ms`, `max_response_size_bytes`, `is_active`, `last_status`, `last_response_time_ms`, `last_status_code`, `last_checked_at` |
+| `monitors` | Watched endpoints | `id`, `name`, `url`, `method`, `headers` (JSON, secrets stored verbatim — masked at the API boundary), `request_body`, `timeout_seconds`, `interval_seconds`, `expected_status_codes`, `expected_fields`, `check_zero_records`, `latency_threshold_ms`, `max_response_size_bytes`, `alert_after_failures`, `consecutive_failures`, `cert_expires_at`, `cert_checked_at`, `is_active`, `last_status`, `last_response_time_ms`, `last_status_code`, `last_checked_at` |
 | `monitoring_records` | One row per check (metadata only) | `id`, `monitor_id` (FK, cascade), `response_time_ms`, `status_code`, `response_size_bytes`, `records_returned`, `is_success`, `error_message`, `checked_at`, `content_type`, `is_valid_json` |
 | `anomalies` | One row per rule hit | `id`, `monitor_id` (FK, cascade), `record_id` (FK, cascade), `anomaly_type`, `severity`, `description`, `detected_at` |
 | `alerts` | User-facing incidents, deduplicated | `id`, `monitor_id` (FK, cascade), `anomaly_id` (FK, SET NULL), `anomaly_type`, `title`, `severity`, `summary`, `possible_cause`, `recommended_action`, `status` (active/acknowledged/resolved), `ai_generated`, `occurrence_count`, `last_seen_at`, `created_at`, `acknowledged_at`, `resolved_at` |
-| `settings` | Single row (id = 1) of user defaults | `default_interval_seconds`, `default_timeout_seconds`, `default_latency_threshold_ms`, `max_concurrency` |
+| `settings` | Single row (id = 1) of user defaults | `default_interval_seconds`, `default_timeout_seconds`, `default_latency_threshold_ms`, `max_concurrency`, `telegram_bot_token`, `telegram_chat_id`, `telegram_enabled`, `telegram_min_severity`, `retention_days`, `alert_retention_days` |
 
 Deleting a monitor cascades to its records, anomalies, and alerts.
 
@@ -200,11 +286,14 @@ Base URL (dev): `http://127.0.0.1:8000`. Full contract:
 | `GET /api/alerts/{id}` | Alert detail (includes `monitor`, `anomaly`, `record`) |
 | `PATCH /api/alerts/{id}/acknowledge` | active → acknowledged (400 on a resolved alert) |
 | `PATCH /api/alerts/{id}/resolve` | → resolved |
-| `GET /api/dashboard/summary` | Totals, uptime %, avg response time, 24h check counts |
+| `GET /api/dashboard/summary` | Totals, uptime %, avg response time, 24h check counts, P50/P95/P99 latency |
 | `GET /api/dashboard/performance` | Response-time points (`monitor_id`, `hours` ≤ 168; ≤200 points) |
-| `GET /api/dashboard/health` | Per-monitor uptime, avg latency, active alerts |
-| `GET /api/settings` | Current defaults + read-only server info |
-| `PUT /api/settings` | Update any subset of the defaults |
+| `GET /api/dashboard/health` | Per-monitor uptime, avg latency, P95 latency, active alerts |
+| `GET /api/settings` | Current defaults + Telegram/retention settings + read-only server info |
+| `PUT /api/settings` | Update any subset of the settings (token: `"********"` keeps the stored value, `null` clears it) |
+| `POST /api/settings/test-notification` | Send a Telegram test message (`{success, detail}`) |
+| `POST /api/settings/cleanup` | Run retention cleanup now; returns `{records_deleted, alerts_deleted, anomalies_deleted}` |
+| `GET /api/settings/cleanup-preview` | Preview what a cleanup would delete (same shape, no deletion) |
 
 List endpoints return `{items, total, page, page_size}`. Errors use
 FastAPI's default `{detail}` shape with proper HTTP status codes.
@@ -228,9 +317,9 @@ pulsewatch-ai/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── .env.example
-│   ├── alembic.ini / alembic/ # Migrations (0001_initial)
+│   ├── alembic.ini / alembic/ # Migrations (0001_initial, 0002_v3_upgrades)
 │   ├── pytest.ini
-│   ├── tests/                 # pytest suite (209 tests)
+│   ├── tests/                 # pytest suite (273 tests)
 │   └── app/
 │       ├── main.py            # FastAPI app + lifespan (scheduler start)
 │       ├── api/routes/        # health, monitors, monitoring, alerts,
@@ -241,8 +330,10 @@ pulsewatch-ai/
 │       │                      #   Alert, AppSettings
 │       ├── schemas/           # Pydantic request/response models
 │       ├── services/          # monitoring, http, http_client, anomaly,
-│       │                      #   alert, ai, dashboard, settings
-│       ├── scheduler/         # APScheduler jobs (1 per active monitor)
+│       │                      #   alert, ai, dashboard, settings,
+│       │                      #   notification (Telegram), retention, ssl
+│       ├── scheduler/         # APScheduler jobs (1 per active monitor
+│       │                      #   + daily 03:00 UTC retention cleanup)
 │       └── utils/             # UTC time helpers
 └── frontend/
     ├── package.json           # React 18 + Vite 6 + Tailwind 3
@@ -364,6 +455,8 @@ All backend settings live in `backend/.env` (copy from
 | `DATABASE_URL` | `sqlite:///./pulsewatch.db` | MySQL: `mysql+pymysql://user:pass@host:3306/pulsewatch` |
 | `GEMINI_API_KEY` | _(empty)_ | Optional. Without it, alerts use deterministic fallback templates. |
 | `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model for AI incident explanations. |
+| `TELEGRAM_BOT_TOKEN` | _(empty)_ | Optional fallback for Telegram notifications. A token saved in Settings wins over this. |
+| `TELEGRAM_CHAT_ID` | _(empty)_ | Optional fallback for Telegram notifications. A chat ID saved in Settings wins over this. |
 | `FRONTEND_URL` | `http://localhost:5173` | CORS origins, comma-separated. |
 | `ALLOW_LOCAL_URLS` | `false` | **Dev-only.** Permits checks against loopback/private IPs. Never `true` in production — the app logs a warning at startup when enabled. |
 | `MAX_CONCURRENCY` | `10` | Batch check concurrency cap (also tunable in Settings). |
@@ -415,17 +508,29 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**209 tests, all passing** (last run: 23 Nov 2026), covering:
+**273 tests, all passing** (last run: 24 Nov 2026), covering:
 
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
-- All 10 anomaly rules individually (incl. severity tiers and the
-  ≥10-point historical gate) and the full mocked check pipeline
+- All 11 anomaly rules individually (incl. severity tiers, the
+  ≥10-point historical gate, and the SSL expiry tiers) and the full
+  mocked check pipeline
   (healthy, slow, 500/404, timeout, network error, invalid JSON, zero
   records, missing fields, unexpected status, oversized, historical
   deviation, redirects, SSRF-blocked checks)
 - Alert creation, dedup (incl. acknowledged alerts), resolve-then-recheck
   creating a new alert, acknowledge/resolve lifecycle + the 400 rule
+- Consecutive-failure alerting: new alerts gated until the threshold,
+  anomalies still recorded, dedup bumps ungated, counter reset on success
+- Telegram notifications: config resolution (DB wins, env fallback),
+  severity gating, test notification, recovery messages, send failures
+  never breaking monitoring
+- SSL monitoring: cert expiry parsing, 24h refresh cadence, expired-cert
+  detection from the stored expiry
+- Latency percentiles (P50/P95/P99, null when no data, successful checks
+  only) in the dashboard summary and per-monitor health
+- Retention cleanup: record/anomaly/alert deletion, preview without
+  deletion, active alerts never deleted
 - Gemini success + all failure modes (HTTP 400, malformed JSON, wrong
   schema, connect error, no key) falling back deterministically
 - Batch partial success + a concurrency demonstration (5 × 0.3s checks
@@ -497,22 +602,20 @@ Test output is written to `backend/logs/pytest.log`.
   down — the check is still recorded as a failed check and the monitor
   is marked down. Genuine connection/DNS failures DO raise a
   `NETWORK_ERROR` anomaly and alert.
-- **No alert notifications** (email/Slack/webhook) — alerts live in the
-  app only. See Roadmap.
-- **No retention policy** — check records accumulate indefinitely;
-  long-running deployments should add pruning.
+- **No alert notifications beyond Telegram** (no email/Slack/webhook)
+  — alerts otherwise live in the app only. See Roadmap.
 - **Single-process scheduler** — running multiple backend replicas
   would duplicate scheduled checks; the design assumes one instance.
 
 ## Roadmap
 
 - Authentication (JWT) + per-user monitors.
-- Alert notifications: email, Slack, and generic webhooks.
-- Record retention / automatic pruning of old check history.
+- Alert notifications: email, Slack, and generic webhooks (Telegram is
+  already implemented).
 - Uptime history charts per monitor (30-day view) and status pages.
 - Distributed scheduler locking (or a single-worker deployment note)
   for multi-replica setups.
-- Frontend tests (Vitest + Testing Library) — the backend has 209
+- Frontend tests (Vitest + Testing Library) — the backend has 273
   tests; the frontend currently has none.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.

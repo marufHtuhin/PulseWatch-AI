@@ -50,8 +50,15 @@ async def test_start_scheduler_registers_jobs_for_active_monitors_only(
     job2 = _job_for(test_scheduler, active2.id)
     assert job1 is not None
     assert job2 is not None
-    # The inactive monitor has no job.
-    assert len(test_scheduler.get_jobs()) == 2
+    # The inactive monitor has no job. The third job is the daily
+    # retention cleanup (03:00 UTC).
+    assert len(test_scheduler.get_jobs()) == 3
+    cleanup_job = test_scheduler.get_job(jobs.CLEANUP_JOB_ID)
+    assert cleanup_job is not None
+    assert cleanup_job.func is jobs.run_retention_cleanup
+    # CronTrigger renders as cron[hour='3', minute='0'].
+    assert "hour='3'" in str(cleanup_job.trigger)
+    assert "minute='0'" in str(cleanup_job.trigger)
     # Trigger interval matches the monitor's interval.
     assert job1.trigger.interval == timedelta(seconds=300)
     assert job2.trigger.interval == timedelta(seconds=60)
@@ -130,7 +137,8 @@ async def test_start_scheduler_is_idempotent(db, make_monitor, test_scheduler):
     make_monitor(interval_seconds=300)
     jobs.start_scheduler(db)
     jobs.start_scheduler(db)  # second call is a no-op
-    assert len(test_scheduler.get_jobs()) == 1
+    # 1 monitor job + the daily retention cleanup job.
+    assert len(test_scheduler.get_jobs()) == 2
 
 
 async def test_reschedule_helpers_are_noops_when_scheduler_stopped(db, make_monitor):

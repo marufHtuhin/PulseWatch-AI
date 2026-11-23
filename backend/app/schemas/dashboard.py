@@ -18,6 +18,11 @@ class DashboardSummary(BaseModel):
     avg_response_time_ms: float
     total_checks_24h: int
     failed_checks_24h: int
+    # Latency percentiles over successful checks in the last 24h.
+    # Null when there is no data — never 0.
+    p50_response_time_ms: float | None = None
+    p95_response_time_ms: float | None = None
+    p99_response_time_ms: float | None = None
 
 
 class PerformancePoint(BaseModel):
@@ -39,6 +44,8 @@ class MonitorHealthItem(BaseModel):
     status: str
     uptime_pct: float
     avg_response_time_ms: float
+    # p95 over the monitor's successful checks in the last 24h (null: no data).
+    p95_response_time_ms: float | None = None
     last_status_code: int | None
     last_checked_at: UtcDateTime | None
     active_alerts: int
