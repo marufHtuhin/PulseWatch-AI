@@ -1,13 +1,13 @@
-# PulseWatch AI — Intelligent API Monitoring & Anomaly Alert System
+# PulseWatch AI
 
-PulseWatch AI watches your APIs for you. Add any HTTP endpoint as a
-**monitor** and PulseWatch checks it on a schedule, records every check,
-detects problems with 9 deterministic anomaly rules, and explains each
+API monitoring with anomaly detection and alerting. Add any HTTP endpoint
+as a monitor and PulseWatch checks it on a schedule, records every check,
+detects problems with 10 deterministic anomaly rules, and explains each
 incident in plain language — with optional Gemini AI explanations, and
 deterministic fallback explanations when no AI key is configured.
 
 No API key is required to run it. Monitoring, anomaly detection, alerting,
-and the dashboard all work fully offline with zero configuration.
+and the dashboard all work with zero configuration.
 
 ## Features
 
@@ -18,12 +18,12 @@ and the dashboard all work fully offline with zero configuration.
 - **Real checks** — every check is a genuine HTTP request with timing,
   status, size, JSON validity, and record-count metadata. Response bodies
   are never stored.
-- **9 deterministic anomaly rules** — high response time (3 severity
-  tiers), HTTP errors, timeouts, zero records, invalid JSON, missing
-  fields, oversized responses, unexpected status, and historical
-  deviation from a rolling baseline (needs ≥10 prior checks).
-- **Smart alerts** — deduplicated per (monitor, anomaly type) while open:
-  a recurring problem bumps `occurrence_count` instead of spamming new
+- **10 deterministic anomaly rules** — high response time (3 severity
+  tiers), HTTP errors, timeouts, network errors, zero records, invalid
+  JSON, missing fields, oversized responses, unexpected status, and
+  historical deviation from a rolling baseline (needs ≥10 prior checks).
+- **Alerts** — deduplicated per (monitor, anomaly type) while open:
+  a recurring problem bumps `occurrence_count` instead of creating new
   alerts. Acknowledge / resolve lifecycle with a resolved-alert history.
 - **Gemini AI explanations** (optional) — when configured, each new alert
   gets an AI-written title, summary, likely cause, and recommended action
@@ -44,11 +44,21 @@ and the dashboard all work fully offline with zero configuration.
 
 ## Screenshots
 
-> Screenshots will be added after the first run. (No screenshots have been
-> captured yet — this section is a placeholder, not a gallery.)
+Dashboard:
 
-Planned shots: Dashboard, Monitors list, Monitor detail with charts,
-Alerts list, Alert detail with AI explanation, Settings.
+![Dashboard](docs/screenshots/dashboard.png)
+
+Monitors:
+
+![Monitors](docs/screenshots/monitors.png)
+
+Monitor detail:
+
+![Monitor detail](docs/screenshots/monitor-detail.png)
+
+Alerts:
+
+![Alerts](docs/screenshots/alerts.png)
 
 ## Tech Stack
 
@@ -63,7 +73,7 @@ Alerts list, Alert detail with AI explanation, Settings.
 | Testing | pytest + pytest-asyncio + httpx MockTransport |
 | Deployment | Docker / Docker Compose, Render (backend), Vercel (frontend) |
 
-## Architecture & Workflow
+## Architecture
 
 ```
 ┌──────────────┐   HTTP/JSON    ┌──────────────────────────────────┐
@@ -103,7 +113,7 @@ Alerts list, Alert detail with AI explanation, Settings.
    JSON validity, record count. **The response body is never stored.**
 4. A `MonitoringRecord` is saved and the monitor's `last_*` snapshot
    (status, response time, status code, last checked) is updated.
-5. All 9 anomaly rules run against the result; each hit becomes an
+5. All 10 anomaly rules run against the result; each hit becomes an
    `Anomaly` row.
 6. Per anomaly: if an open alert already exists for (monitor, type), its
    `occurrence_count` is bumped; otherwise a new alert is created —
@@ -166,7 +176,7 @@ migration, `0001_initial`):
 
 Deleting a monitor cascades to its records, anomalies, and alerts.
 
-## API Endpoints
+## API Overview
 
 Base URL (dev): `http://127.0.0.1:8000`. Full contract:
 [`API_CONTRACT.md`](API_CONTRACT.md). Interactive docs at `/docs`.
@@ -205,13 +215,15 @@ FastAPI's default `{detail}` shape with proper HTTP status codes.
 pulsewatch-ai/
 ├── API_CONTRACT.md            # Source of truth for endpoints & schemas
 ├── README.md                  # This file
+├── LICENSE                    # MIT license
 ├── docker-compose.yml         # MySQL 8 + backend (Docker)
 ├── sample-data/
 │   └── sample-monitors.json   # 8 ready-made monitors to try out
 ├── docs/
 │   ├── AI_Prompts.md          # Prompts actually used to build this project
 │   ├── AI_Prompts.docx        # Same content as a Word document
-│   └── DEPLOYMENT.md          # Render + Vercel deployment guide
+│   ├── DEPLOYMENT.md          # Render + Vercel deployment guide
+│   └── screenshots/           # UI screenshots used in this README
 ├── backend/
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -246,14 +258,13 @@ pulsewatch-ai/
         └── utils/format.js    # ms / dates / bytes / uptime formatting
 ```
 
-## Installation
+## Quick Start
 
 Prerequisites: **Python 3.12+**, **Node.js 18+** (for the frontend), and
 — only for the MySQL path — **Docker Desktop** or a local MySQL 8 server.
-Git to clone the repo.
 
-> **Beginner path (fastest):** use the **SQLite quick demo** below. It
-> needs nothing but Python and Node — no Docker, no MySQL, no API keys.
+> **Fastest path:** use the **SQLite quick demo** below. It needs
+> nothing but Python and Node — no Docker, no MySQL, no API keys.
 
 ### Option A — SQLite quick demo (recommended first run)
 
@@ -333,7 +344,17 @@ migrations automatically). Run the frontend separately with
 
 3. Run the backend as in Option A (`alembic upgrade head`, then uvicorn).
 
-## Environment Variables
+| What | Command | URL |
+|---|---|---|
+| Backend (dev) | `uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` (from `backend/`, venv active) | http://127.0.0.1:8000 |
+| Frontend (dev) | `npm run dev` (from `frontend/`) | http://127.0.0.1:5173 |
+| Frontend (production build) | `npm run build` then `npm run preview` | http://127.0.0.1:4173 |
+| Full stack (Docker) | `docker compose up --build` (from project root) | backend :8000 |
+
+The backend serves the API only; the frontend is a separate dev server
+(or static build) that talks to it over `/api`.
+
+## Configuration
 
 All backend settings live in `backend/.env` (copy from
 `backend/.env.example`). Every variable has a working default.
@@ -355,18 +376,6 @@ All backend settings live in `backend/.env` (copy from
 Frontend: `VITE_API_BASE_URL` (build-time) overrides the API base URL
 for the production build; the default is the relative `/api` path, which
 the Vite dev server proxies to `http://127.0.0.1:8000`.
-
-## How to Run
-
-| What | Command | URL |
-|---|---|---|
-| Backend (dev) | `uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` (from `backend/`, venv active) | http://127.0.0.1:8000 |
-| Frontend (dev) | `npm run dev` (from `frontend/`) | http://127.0.0.1:5173 |
-| Frontend (production build) | `npm run build` then `npm run preview` | http://127.0.0.1:4173 |
-| Full stack (Docker) | `docker compose up --build` (from project root) | backend :8000 |
-
-The backend serves the API only; the frontend is a separate dev server
-(or static build) that talks to it over `/api`.
 
 ## Sample APIs & Testing Scenarios
 
@@ -410,11 +419,11 @@ pytest tests/ -v
 
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
-- All 9 anomaly rules individually (incl. severity tiers and the
+- All 10 anomaly rules individually (incl. severity tiers and the
   ≥10-point historical gate) and the full mocked check pipeline
-  (healthy, slow, 500/404, timeout, invalid JSON, zero records, missing
-  fields, unexpected status, oversized, historical deviation, redirects,
-  SSRF-blocked checks)
+  (healthy, slow, 500/404, timeout, network error, invalid JSON, zero
+  records, missing fields, unexpected status, oversized, historical
+  deviation, redirects, SSRF-blocked checks)
 - Alert creation, dedup (incl. acknowledged alerts), resolve-then-recheck
   creating a new alert, acknowledge/resolve lifecycle + the 400 rule
 - Gemini success + all failure modes (HTTP 400, malformed JSON, wrong
@@ -466,10 +475,9 @@ Test output is written to `backend/logs/pytest.log`.
   metadata (status, timings, sizes, anomaly types, baselines).
 - **No authentication (yet)** — anyone who can reach the backend can
   use the API. Do not expose the backend publicly without adding auth
-  (see Limitations / Future Improvements). CORS is restricted to
-  `FRONTEND_URL`.
+  (see Limitations). CORS is restricted to `FRONTEND_URL`.
 
-## Limitations (honest)
+## Limitations
 
 - **No authentication or multi-user support.** The API is open to
   anyone who can reach it. Fine for local use; not safe to expose
@@ -490,13 +498,13 @@ Test output is written to `backend/logs/pytest.log`.
   is marked down. Genuine connection/DNS failures DO raise a
   `NETWORK_ERROR` anomaly and alert.
 - **No alert notifications** (email/Slack/webhook) — alerts live in the
-  app only. See Future Improvements.
+  app only. See Roadmap.
 - **No retention policy** — check records accumulate indefinitely;
   long-running deployments should add pruning.
 - **Single-process scheduler** — running multiple backend replicas
   would duplicate scheduled checks; the design assumes one instance.
 
-## Future Improvements
+## Roadmap
 
 - Authentication (JWT) + per-user monitors.
 - Alert notifications: email, Slack, and generic webhooks.
@@ -509,4 +517,8 @@ Test output is written to `backend/logs/pytest.log`.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.
 - Custom check assertions (JSONPath / regex on the response body).
-- Dark/light theme toggle (the UI is dark-only today).
+- Dark theme (the UI is light-only today).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
