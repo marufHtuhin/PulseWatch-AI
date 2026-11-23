@@ -101,16 +101,12 @@ export function Alerts() {
     <div>
       <PageHeader
         title={showHistory ? 'Alert history' : 'Alerts'}
-        description={
-          showHistory
-            ? 'Resolved alerts, most recent first'
-            : 'Anomalies detected on your monitors — AI-explained where available'
-        }
+        description={showHistory ? 'Resolved alerts, most recent first' : undefined}
         actions={
           <>
-            <div className="flex rounded-lg border border-ink-700 bg-ink-800 p-0.5" role="tablist" aria-label="Alert view">
+            <div className="flex rounded-md border border-zinc-200 bg-zinc-100 p-0.5" role="tablist" aria-label="Alert view">
               <button
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${!showHistory ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                className={`rounded px-3 py-1.5 text-sm font-medium transition ${!showHistory ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
                 onClick={() => updateParams({ view: '', status: '' })}
                 role="tab"
                 aria-selected={!showHistory}
@@ -118,7 +114,7 @@ export function Alerts() {
                 Open alerts
               </button>
               <button
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${showHistory ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                className={`rounded px-3 py-1.5 text-sm font-medium transition ${showHistory ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
                 onClick={() => updateParams({ view: 'history', status: '' })}
                 role="tab"
                 aria-selected={showHistory}
@@ -227,7 +223,7 @@ export function Alerts() {
           />
         ) : (
           <>
-            <div className="divide-y divide-ink-700/40">
+            <div className="divide-y divide-zinc-100">
               {items.map((a) => (
                 <AlertRow
                   key={a.id}

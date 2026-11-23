@@ -265,16 +265,14 @@ export function MonitorForm() {
   }
 
   const fieldError = (field) =>
-    errors[field] ? <p className="mt-1 text-xs text-red-400">{errors[field]}</p> : null
+    errors[field] ? <p className="mt-1 text-xs text-red-600">{errors[field]}</p> : null
 
   return (
     <div>
       <PageHeader
         title={isEdit ? 'Edit monitor' : 'Add monitor'}
         description={
-          isEdit
-            ? `Update the configuration for "${existing.data?.name || ''}"`
-            : 'Configure a new API endpoint for PulseWatch to monitor'
+          isEdit ? `Update the configuration for "${existing.data?.name || ''}"` : undefined
         }
         actions={
           <Link to="/monitors" className="btn-secondary">
@@ -285,7 +283,7 @@ export function MonitorForm() {
       />
 
       {serverError && (
-        <div className="mb-5 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {serverError}
         </div>
       )}
@@ -293,7 +291,7 @@ export function MonitorForm() {
       <form onSubmit={handleSubmit} className="space-y-6" noValidate>
         {/* Basics */}
         <section className="card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-white">Endpoint</h2>
+          <h2 className="mb-4 text-sm font-semibold text-zinc-900">Endpoint</h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="md:col-span-1">
               <label className="label" htmlFor="name">
@@ -334,7 +332,7 @@ export function MonitorForm() {
                 onChange={set('url')}
               />
               {fieldError('url')}
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-zinc-500">
                 Only http/https URLs are accepted. Private and loopback addresses are blocked unless the server allows local URLs.
               </p>
             </div>
@@ -350,7 +348,7 @@ export function MonitorForm() {
                   value={form.request_body}
                   onChange={set('request_body')}
                 />
-                <p className="mt-1 text-xs text-slate-500">Sent as-is with the request. Leave empty for no body.</p>
+                <p className="mt-1 text-xs text-zinc-500">Sent as-is with the request. Leave empty for no body.</p>
               </div>
             )}
           </div>
@@ -358,8 +356,8 @@ export function MonitorForm() {
 
         {/* Headers */}
         <section className="card p-5">
-          <h2 className="mb-1 text-sm font-semibold text-white">Request headers</h2>
-          <p className="mb-4 text-xs text-slate-500">
+          <h2 className="mb-1 text-sm font-semibold text-zinc-900">Request headers</h2>
+          <p className="mb-4 text-xs text-zinc-500">
             Optional. Secret values (Authorization, API keys, cookies) are stored server-side and never shown back — a masked value means “keep the existing secret”.
           </p>
           <div className="space-y-2.5">
@@ -387,7 +385,7 @@ export function MonitorForm() {
                     {hideValue && (
                       <button
                         type="button"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 hover:text-slate-200"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-400 hover:text-zinc-700"
                         onClick={() => setHeader(i, 'show', !h.show)}
                         aria-label={h.show ? 'Hide value' : 'Show value'}
                         title={h.show ? 'Hide value' : 'Show value'}
@@ -407,13 +405,13 @@ export function MonitorForm() {
                     <Trash2 className="h-4 w-4" />
                   </button>
                   {errors[`header_${i}`] && (
-                    <p className="text-xs text-red-400 sm:hidden">{errors[`header_${i}`]}</p>
+                    <p className="text-xs text-red-600 sm:hidden">{errors[`header_${i}`]}</p>
                   )}
                 </div>
               )
             })}
             {form.headers.some((_, i) => errors[`header_${i}`]) && (
-              <p className="hidden text-xs text-red-400 sm:block">
+              <p className="hidden text-xs text-red-600 sm:block">
                 {Object.entries(errors)
                   .filter(([k]) => k.startsWith('header_'))
                   .map(([, v]) => v)
@@ -429,7 +427,7 @@ export function MonitorForm() {
 
         {/* Schedule & thresholds */}
         <section className="card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-white">Schedule &amp; thresholds</h2>
+          <h2 className="mb-4 text-sm font-semibold text-zinc-900">Schedule &amp; thresholds</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="label" htmlFor="interval_seconds">
@@ -474,7 +472,7 @@ export function MonitorForm() {
                 onChange={set('latency_threshold_ms')}
               />
               {fieldError('latency_threshold_ms')}
-              <p className="mt-1 text-xs text-slate-500">Slower responses raise an anomaly.</p>
+              <p className="mt-1 text-xs text-zinc-500">Slower responses raise an anomaly.</p>
             </div>
             <div>
               <label className="label" htmlFor="max_response_size_bytes">
@@ -496,7 +494,7 @@ export function MonitorForm() {
 
         {/* Response expectations */}
         <section className="card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-white">Response expectations</h2>
+          <h2 className="mb-4 text-sm font-semibold text-zinc-900">Response expectations</h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="label" htmlFor="expected_status_codes">
@@ -510,7 +508,7 @@ export function MonitorForm() {
                 onChange={set('expected_status_codes')}
               />
               {fieldError('expected_status_codes')}
-              <p className="mt-1 text-xs text-slate-500">Comma-separated. Any other code raises an anomaly.</p>
+              <p className="mt-1 text-xs text-zinc-500">Comma-separated. Any other code raises an anomaly.</p>
             </div>
             <div>
               <label className="label" htmlFor="expected_fields">
@@ -523,18 +521,18 @@ export function MonitorForm() {
                 value={form.expected_fields}
                 onChange={set('expected_fields')}
               />
-              <p className="mt-1 text-xs text-slate-500">Comma-separated. Missing fields raise an anomaly.</p>
+              <p className="mt-1 text-xs text-zinc-500">Comma-separated. Missing fields raise an anomaly.</p>
             </div>
             <label className="flex cursor-pointer items-start gap-2.5 md:col-span-2">
               <input
                 type="checkbox"
                 checked={form.check_zero_records}
                 onChange={set('check_zero_records')}
-                className="mt-0.5 h-4 w-4 rounded border-ink-700 bg-ink-800 accent-emerald-500"
+                className="mt-0.5 h-4 w-4 rounded border-zinc-300 accent-zinc-900"
               />
               <span>
-                <span className="block text-sm font-medium text-slate-200">Alert when zero records are returned</span>
-                <span className="block text-xs text-slate-500">
+                <span className="block text-sm font-medium text-zinc-900">Alert when zero records are returned</span>
+                <span className="block text-xs text-zinc-500">
                   For list endpoints: raise an anomaly when the JSON array is empty.
                 </span>
               </span>

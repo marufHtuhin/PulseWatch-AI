@@ -104,7 +104,7 @@ export function Settings() {
 
   const s = settings.data
   const fieldError = (field) =>
-    errors[field] ? <p className="mt-1 text-xs text-red-400">{errors[field]}</p> : null
+    errors[field] ? <p className="mt-1 text-xs text-red-600">{errors[field]}</p> : null
 
   return (
     <div>
@@ -116,8 +116,8 @@ export function Settings() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <form onSubmit={handleSave} className="xl:col-span-2" noValidate>
           <div className="card p-5">
-            <h2 className="mb-1 text-sm font-semibold text-white">Monitor defaults</h2>
-            <p className="mb-5 text-xs text-slate-500">
+            <h2 className="mb-1 text-sm font-semibold text-zinc-900">Monitor defaults</h2>
+            <p className="mb-5 text-xs text-zinc-500">
               These values pre-fill the form when you create a new monitor. Existing monitors are not changed.
             </p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -169,7 +169,7 @@ export function Settings() {
                   onChange={set('default_latency_threshold_ms')}
                 />
                 {fieldError('default_latency_threshold_ms')}
-                <p className="mt-1 text-xs text-slate-500">Responses slower than this raise an anomaly.</p>
+                <p className="mt-1 text-xs text-zinc-500">Responses slower than this raise an anomaly.</p>
               </div>
               <div>
                 <label className="label" htmlFor="max_concurrency">
@@ -186,7 +186,7 @@ export function Settings() {
                   onChange={set('max_concurrency')}
                 />
                 {fieldError('max_concurrency')}
-                <p className="mt-1 text-xs text-slate-500">Upper bound for simultaneous scheduled checks.</p>
+                <p className="mt-1 text-xs text-zinc-500">Upper bound for simultaneous scheduled checks.</p>
               </div>
             </div>
             <div className="mt-6 flex justify-end">
@@ -200,23 +200,23 @@ export function Settings() {
 
         {/* Server status (read-only) */}
         <div className="card h-fit p-5">
-          <h2 className="mb-4 text-sm font-semibold text-white">Server status</h2>
+          <h2 className="mb-4 text-sm font-semibold text-zinc-900">Server status</h2>
           <dl className="space-y-4 text-sm">
             <div className="flex items-start justify-between gap-3">
-              <dt className="text-slate-500">Gemini AI</dt>
+              <dt className="shrink-0 whitespace-nowrap text-zinc-500">Gemini AI</dt>
               <dd className="text-right">
                 {s.gemini_configured ? (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-green-600">
                     <CheckCircle2 className="h-4 w-4" />
                     Configured
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-amber-400">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
                     <XCircle className="h-4 w-4" />
                     Not configured
                   </span>
                 )}
-                <span className="mt-0.5 block text-[11px] text-slate-500">
+                <span className="mt-0.5 block text-[11px] text-zinc-400">
                   {s.gemini_configured
                     ? 'Alerts include AI-generated explanations.'
                     : 'Alerts use deterministic templates until a Gemini key is set.'}
@@ -224,15 +224,15 @@ export function Settings() {
               </dd>
             </div>
             <div className="flex items-start justify-between gap-3">
-              <dt className="text-slate-500">Local URLs allowed</dt>
+              <dt className="shrink-0 whitespace-nowrap text-zinc-500">Local URLs allowed</dt>
               <dd className="text-right">
                 {s.allow_local_urls ? (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-amber-400">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
                     <Info className="h-4 w-4" />
                     Yes (dev only)
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-green-600">
                     <CheckCircle2 className="h-4 w-4" />
                     No — SSRF protected
                   </span>
@@ -240,15 +240,15 @@ export function Settings() {
               </dd>
             </div>
             <div className="flex items-start justify-between gap-3">
-              <dt className="text-slate-500">Environment</dt>
+              <dt className="shrink-0 whitespace-nowrap text-zinc-500">Environment</dt>
               <dd>
-                <span className="badge border border-slate-500/30 bg-slate-500/10 font-mono text-slate-300">
+                <span className="badge border border-zinc-200 bg-zinc-50 font-mono text-zinc-600">
                   {s.app_env || '—'}
                 </span>
               </dd>
             </div>
           </dl>
-          <p className="mt-5 border-t border-ink-700/60 pt-4 text-xs leading-relaxed text-slate-500">
+          <p className="mt-5 border-t border-zinc-200 pt-4 text-xs leading-relaxed text-zinc-400">
             These values are read from the server environment and can&apos;t be changed here.
           </p>
         </div>

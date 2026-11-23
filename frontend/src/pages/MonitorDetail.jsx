@@ -176,7 +176,7 @@ export function MonitorDetail() {
         description={
           <span className="flex flex-wrap items-center gap-2">
             <MethodBadge method={m.method} />
-            <a href={m.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all font-mono text-slate-400 hover:text-emerald-400">
+            <a href={m.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all font-mono text-zinc-500 hover:text-blue-600">
               {m.url}
               <ExternalLink className="h-3 w-3 shrink-0" />
             </a>
@@ -209,36 +209,36 @@ export function MonitorDetail() {
       />
 
       {/* Status summary strip */}
-      <div className="card mb-6 grid grid-cols-2 gap-4 p-4 sm:grid-cols-4 sm:p-5">
+      <div className="card mb-6 grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
         <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500">Status</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Status</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusBadge status={m.last_status} />
-            {!m.is_active && <span className="badge border border-slate-500/30 bg-slate-500/10 text-slate-400">Paused</span>}
+            {!m.is_active && <span className="badge bg-zinc-100 text-zinc-500">Paused</span>}
           </div>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500">Last response</p>
-          <p className="mt-2 flex items-center gap-1.5 text-lg font-semibold text-white">
-            <Gauge className="h-4 w-4 text-slate-500" />
-            {formatMs(m.last_response_time_ms)}
-            <span className="font-mono text-sm font-normal text-slate-400">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Last response</p>
+          <p className="mt-2 flex items-center gap-1.5 text-lg font-semibold tracking-tight text-zinc-900">
+            <Gauge className="h-4 w-4 text-zinc-400" />
+            <span className="font-mono tabular-nums">{formatMs(m.last_response_time_ms)}</span>
+            <span className="font-mono text-sm font-normal text-zinc-400">
               {m.last_status_code ? `(${m.last_status_code})` : ''}
             </span>
           </p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500">Last checked</p>
-          <p className="mt-2 flex items-center gap-1.5 text-lg font-semibold text-white">
-            <Clock className="h-4 w-4 text-slate-500" />
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Last checked</p>
+          <p className="mt-2 flex items-center gap-1.5 text-lg font-semibold tracking-tight text-zinc-900">
+            <Clock className="h-4 w-4 text-zinc-400" />
             {timeAgo(m.last_checked_at)}
           </p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500">Active alerts</p>
-          <p className="mt-2 flex items-center gap-1.5 text-lg font-semibold text-white">
-            <Bell className="h-4 w-4 text-slate-500" />
-            {formatNumber(alerts.filter((a) => a.status !== 'resolved').length)}
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Active alerts</p>
+          <p className="mt-2 flex items-center gap-1.5 text-lg font-semibold tracking-tight text-zinc-900">
+            <Bell className="h-4 w-4 text-zinc-400" />
+            <span className="font-mono tabular-nums">{formatNumber(alerts.filter((a) => a.status !== 'resolved').length)}</span>
           </p>
         </div>
       </div>
@@ -248,7 +248,7 @@ export function MonitorDetail() {
           {/* Response time chart */}
           <ChartCard title="Response time" subtitle="Last 40 checks">
             {chartHistory.loading && !chartHistory.data ? (
-              <div className="h-[280px] animate-pulse rounded-lg bg-ink-800/50" />
+              <div className="h-[280px] animate-pulse rounded-lg bg-zinc-200/50" />
             ) : chartHistory.error ? (
               <ErrorState message={chartHistory.error} onRetry={chartHistory.refetch} />
             ) : (
@@ -259,7 +259,7 @@ export function MonitorDetail() {
           {/* Status history strip */}
           <ChartCard title="Check history" subtitle="Each bar is one check — green passed, red failed">
             {chartHistory.loading && !chartHistory.data ? (
-              <div className="h-8 animate-pulse rounded bg-ink-800/50" />
+              <div className="h-8 animate-pulse rounded bg-zinc-200/50" />
             ) : (
               <StatusHistory records={chartRecords} />
             )}
@@ -287,7 +287,7 @@ export function MonitorDetail() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] border-collapse">
                     <thead>
-                      <tr className="border-b border-ink-700/60">
+                      <tr className="border-b border-zinc-200">
                         <th className="th">Checked at</th>
                         <th className="th">Result</th>
                         <th className="th">Response</th>
@@ -298,21 +298,21 @@ export function MonitorDetail() {
                     </thead>
                     <tbody>
                       {records.map((r) => (
-                        <tr key={r.id} className="border-b border-ink-700/40 last:border-0 hover:bg-ink-850/50">
-                          <td className="td whitespace-nowrap">{formatDateTime(r.checked_at)}</td>
+                        <tr key={r.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
+                          <td className="td whitespace-nowrap font-mono text-xs">{formatDateTime(r.checked_at)}</td>
                           <td className="td">
                             {r.is_success ? (
-                              <span className="text-emerald-400">Success</span>
+                              <span className="text-green-600">Success</span>
                             ) : (
-                              <span className="text-red-400">Failed</span>
+                              <span className="text-red-600">Failed</span>
                             )}
                           </td>
-                          <td className="td font-mono">
+                          <td className="td font-mono tabular-nums">
                             {r.status_code ?? '—'} · {formatMs(r.response_time_ms)}
                           </td>
                           <td className="td">{formatBytes(r.response_size_bytes)}</td>
-                          <td className="td">{r.records_returned ?? '—'}</td>
-                          <td className="td max-w-[220px] truncate text-slate-400" title={r.error_message || ''}>
+                          <td className="td font-mono tabular-nums">{r.records_returned ?? '—'}</td>
+                          <td className="td max-w-[220px] truncate text-zinc-400" title={r.error_message || ''}>
                             {r.error_message || '—'}
                           </td>
                         </tr>
@@ -365,14 +365,14 @@ export function MonitorDetail() {
           {/* Anomalies */}
           <ChartCard title="Recent anomalies" subtitle="From the last 40 checks">
             {anomalies.length === 0 ? (
-              <p className="py-2 text-sm text-slate-500">No anomalies detected in recent checks.</p>
+              <p className="py-2 text-sm text-zinc-500">No anomalies detected in recent checks.</p>
             ) : (
               <ul className="space-y-3">
                 {anomalies.slice(0, 8).map((a) => (
-                  <li key={a.id} className="rounded-lg border border-ink-700/60 bg-ink-850/60 p-3">
-                    <p className="text-sm font-medium text-white">{anomalyLabel(a.anomaly_type)}</p>
-                    {a.description && <p className="mt-0.5 text-xs leading-relaxed text-slate-400">{a.description}</p>}
-                    <p className="mt-1.5 text-xs text-slate-500">
+                  <li key={a.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                    <p className="text-sm font-medium text-zinc-900">{anomalyLabel(a.anomaly_type)}</p>
+                    {a.description && <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">{a.description}</p>}
+                    <p className="mt-1.5 text-xs text-zinc-400">
                       {a.severity} · {timeAgo(a.detected_at)}
                     </p>
                   </li>
@@ -386,7 +386,7 @@ export function MonitorDetail() {
             title="Related alerts"
             subtitle="Alerts raised for this monitor"
             action={
-              <Link to={`/alerts?monitor_id=${m.id}`} className="text-xs font-medium text-emerald-400 hover:text-emerald-300">
+              <Link to={`/alerts?monitor_id=${m.id}`} className="text-xs font-medium text-blue-600 hover:text-blue-700">
                 View all →
               </Link>
             }
@@ -396,9 +396,9 @@ export function MonitorDetail() {
             ) : relatedAlerts.error ? (
               <ErrorState message={relatedAlerts.error} onRetry={relatedAlerts.refetch} />
             ) : alerts.length === 0 ? (
-              <p className="py-2 text-sm text-slate-500">No alerts for this monitor.</p>
+              <p className="py-2 text-sm text-zinc-500">No alerts for this monitor.</p>
             ) : (
-              <div className="-mx-3 divide-y divide-ink-700/40">
+              <div className="-mx-3 divide-y divide-zinc-100">
                 {alerts.map((a) => (
                   <AlertRowCompact key={a.id} alert={a} />
                 ))}
@@ -425,10 +425,10 @@ export function MonitorDetail() {
 function ConfigRow({ label, value, mono = false, hint }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <dt className="shrink-0 text-slate-500">{label}</dt>
-      <dd className={`text-right text-slate-200 ${mono ? 'break-all font-mono text-xs leading-relaxed' : ''}`}>
+      <dt className="shrink-0 text-zinc-500">{label}</dt>
+      <dd className={`text-right text-zinc-900 ${mono ? 'break-all font-mono text-xs leading-relaxed' : ''}`}>
         {value}
-        {hint && <span className="mt-0.5 block text-[11px] font-sans text-slate-500">{hint}</span>}
+        {hint && <span className="mt-0.5 block text-[11px] font-sans text-zinc-400">{hint}</span>}
       </dd>
     </div>
   )

@@ -11,10 +11,10 @@ const ICONS = {
 }
 
 const STYLES = {
-  success: 'border-emerald-500/40 text-emerald-400',
-  error: 'border-red-500/40 text-red-400',
-  warning: 'border-amber-500/40 text-amber-400',
-  info: 'border-sky-500/40 text-sky-400',
+  success: 'text-green-600',
+  error: 'text-red-600',
+  warning: 'text-amber-600',
+  info: 'text-zinc-500',
 }
 
 let nextId = 1
@@ -56,14 +56,14 @@ export function ToastProvider({ children }) {
           return (
             <div
               key={toast.id}
-              className={`pointer-events-auto flex items-start gap-2.5 rounded-xl border bg-ink-900/95 px-3.5 py-3 shadow-xl backdrop-blur ${STYLES[toast.type] || STYLES.info}`}
+              className="pointer-events-auto flex items-start gap-2.5 rounded-lg border border-zinc-200 bg-white px-3.5 py-3 shadow-lg"
               role="alert"
             >
-              <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-              <p className="flex-1 text-sm leading-snug text-slate-100">{toast.message}</p>
+              <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${STYLES[toast.type] || STYLES.info}`} />
+              <p className="flex-1 text-sm leading-snug text-zinc-900">{toast.message}</p>
               <button
                 onClick={() => dismiss(toast.id)}
-                className="shrink-0 rounded p-0.5 text-slate-500 hover:text-slate-200"
+                className="shrink-0 rounded p-0.5 text-zinc-400 hover:text-zinc-700"
                 aria-label="Dismiss notification"
               >
                 <X className="h-4 w-4" />

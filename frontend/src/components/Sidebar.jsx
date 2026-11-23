@@ -14,25 +14,22 @@ export function Sidebar({ open, onClose }) {
       {/* Mobile overlay */}
       {open && (
         <div
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
           onClick={onClose}
           aria-hidden="true"
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-ink-700/60 bg-ink-900 transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-zinc-200 bg-white transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between px-5 py-4">
+        <div className="flex items-center justify-between px-4 py-4">
           <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
-              <Activity className="h-5 w-5" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-zinc-900 text-white">
+              <Activity className="h-4 w-4" />
             </span>
-            <span className="leading-tight">
-              <span className="block text-base font-bold tracking-tight text-white">PulseWatch</span>
-              <span className="block text-[11px] font-medium uppercase tracking-widest text-emerald-400">AI Monitor</span>
-            </span>
+            <span className="text-base font-semibold tracking-tight text-zinc-900">PulseWatch</span>
           </Link>
           <button className="btn-icon lg:hidden" onClick={onClose} aria-label="Close menu">
             <X className="h-5 w-5" />
@@ -57,16 +54,11 @@ export function Sidebar({ open, onClose }) {
           })}
         </nav>
 
-        <div className="border-t border-ink-700/60 p-3">
+        <div className="border-t border-zinc-200 p-3">
           <Link to="/monitors/new" onClick={onClose} className="btn-primary w-full">
             <Plus className="h-4 w-4" />
             New Monitor
           </Link>
-          <p className="mt-3 px-1 text-center text-[11px] leading-relaxed text-slate-600">
-            Intelligent API monitoring
-            <br />
-            &amp; anomaly alerts
-          </p>
         </div>
       </aside>
     </>

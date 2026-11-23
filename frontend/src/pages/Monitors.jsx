@@ -125,7 +125,6 @@ export function Monitors() {
     <div>
       <PageHeader
         title="Monitors"
-        description="Every API endpoint PulseWatch is watching"
         actions={
           <>
             <button className="btn-secondary" onClick={monitors.refetch} disabled={monitors.loading}>

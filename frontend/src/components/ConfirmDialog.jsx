@@ -15,23 +15,23 @@ export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
       aria-label={title}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-ink-700 bg-ink-900 p-6 shadow-2xl"
+        className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">
-          <div className={`rounded-full p-2 ${danger ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
+          <div className={`rounded-full p-2 ${danger ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'}`}>
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-white">{title}</h2>
-            <p className="mt-1 text-sm leading-relaxed text-slate-400">{message}</p>
+            <h2 className="text-base font-semibold tracking-tight text-zinc-900">{title}</h2>
+            <p className="mt-1 text-sm leading-relaxed text-zinc-500">{message}</p>
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-2">

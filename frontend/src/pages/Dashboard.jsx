@@ -3,17 +3,15 @@ import { Link } from 'react-router-dom'
 import {
   Activity,
   AlarmClock,
-  Bell,
   CheckCircle2,
   Clock,
-  Gauge,
   MonitorCheck,
   Plus,
   XCircle,
 } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { getDashboardHealth, getDashboardPerformance, getDashboardSummary, listAlerts, listHistory } from '../api/client'
-import { ChartCard, EmptyState, ErrorState, LoadingSkeleton, PageHeader, StatCard } from '../components/Cards'
+import { ChartCard, EmptyState, ErrorState, LoadingSkeleton, PageHeader, StatsStrip } from '../components/Cards'
 import { ResponseTimeChart } from '../components/Charts'
 import { AlertRowCompact } from '../components/AlertRow'
 import { StatusBadge } from '../components/Badges'
@@ -63,12 +61,8 @@ export function Dashboard() {
   if (summary.loading && health.loading) {
     return (
       <div>
-        <PageHeader title="Dashboard" description="Overview of your API monitoring" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-[104px] animate-pulse rounded-xl bg-ink-900" />
-          ))}
-        </div>
+        <PageHeader title="Dashboard" />
+        <div className="h-[104px] animate-pulse rounded-lg bg-zinc-200/70" />
         <LoadingSkeleton rows={5} className="mt-6" />
       </div>
     )
@@ -77,7 +71,7 @@ export function Dashboard() {
   if (summary.error && !s) {
     return (
       <div>
-        <PageHeader title="Dashboard" description="Overview of your API monitoring" />
+        <PageHeader title="Dashboard" />
         <div className="card">
           <ErrorState message={summary.error} onRetry={summary.refetch} />
         </div>
@@ -89,7 +83,6 @@ export function Dashboard() {
     <div>
       <PageHeader
         title="Dashboard"
-        description="Overview of your API monitoring — refreshes every 30 seconds"
         actions={
           <Link to="/monitors/new" className="btn-primary">
             <Plus className="h-4 w-4" />
@@ -98,41 +91,32 @@ export function Dashboard() {
         }
       />
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Monitors"
-          value={formatNumber(s?.total_monitors ?? 0)}
-          subtitle={`${formatNumber(s?.active_monitors ?? 0)} active · ${formatNumber(s?.healthy_monitors ?? 0)} healthy · ${formatNumber(s?.unhealthy_monitors ?? 0)} unhealthy`}
-          icon={MonitorCheck}
-          accent="text-emerald-400"
-          loading={summary.loading}
-        />
-        <StatCard
-          title="Overall uptime"
-          value={formatUptime(s?.overall_uptime_pct)}
-          subtitle={`${formatNumber(s?.total_checks_24h ?? 0)} checks in 24h · ${formatNumber(s?.failed_checks_24h ?? 0)} failed`}
-          icon={CheckCircle2}
-          accent="text-sky-400"
-          loading={summary.loading}
-        />
-        <StatCard
-          title="Avg response time"
-          value={formatMs(s?.avg_response_time_ms)}
-          subtitle="Across all monitors"
-          icon={Gauge}
-          accent="text-violet-400"
-          loading={summary.loading}
-        />
-        <StatCard
-          title="Active alerts"
-          value={formatNumber(s?.active_alerts ?? 0)}
-          subtitle={`${formatNumber(s?.critical_alerts ?? 0)} critical right now`}
-          icon={Bell}
-          accent={(s?.active_alerts ?? 0) > 0 ? 'text-red-400' : 'text-emerald-400'}
-          loading={summary.loading}
-        />
-      </div>
+      {/* Summary strip */}
+      <StatsStrip
+        loading={summary.loading}
+        stats={[
+          {
+            title: 'Monitors',
+            value: formatNumber(s?.total_monitors ?? 0),
+            subtitle: `${formatNumber(s?.active_monitors ?? 0)} active · ${formatNumber(s?.healthy_monitors ?? 0)} healthy · ${formatNumber(s?.unhealthy_monitors ?? 0)} unhealthy`,
+          },
+          {
+            title: 'Overall uptime',
+            value: formatUptime(s?.overall_uptime_pct),
+            subtitle: `${formatNumber(s?.total_checks_24h ?? 0)} checks in 24h · ${formatNumber(s?.failed_checks_24h ?? 0)} failed`,
+          },
+          {
+            title: 'Avg response time',
+            value: formatMs(s?.avg_response_time_ms),
+            subtitle: 'Across all monitors',
+          },
+          {
+            title: 'Active alerts',
+            value: formatNumber(s?.active_alerts ?? 0),
+            subtitle: `${formatNumber(s?.critical_alerts ?? 0)} critical`,
+          },
+        ]}
+      />
 
       {/* Response time trend */}
       <ChartCard
@@ -155,7 +139,7 @@ export function Dashboard() {
         }
       >
         {performance.loading && !performance.data ? (
-          <div className="h-[280px] animate-pulse rounded-lg bg-ink-800/50" />
+          <div className="h-[280px] animate-pulse rounded-lg bg-zinc-200/50" />
         ) : performance.error ? (
           <ErrorState message={performance.error} onRetry={performance.refetch} />
         ) : (
@@ -170,7 +154,7 @@ export function Dashboard() {
           subtitle="Uptime and latency per monitor"
           className="xl:col-span-3"
           action={
-            <Link to="/monitors" className="text-xs font-medium text-emerald-400 hover:text-emerald-300">
+            <Link to="/monitors" className="text-xs font-medium text-blue-600 hover:text-blue-700">
               View all →
             </Link>
           }
@@ -195,7 +179,7 @@ export function Dashboard() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[520px] border-collapse">
                 <thead>
-                  <tr className="border-b border-ink-700/60">
+                  <tr className="border-b border-zinc-200">
                     <th className="th">Monitor</th>
                     <th className="th">Status</th>
                     <th className="th">Uptime</th>
@@ -206,30 +190,30 @@ export function Dashboard() {
                 </thead>
                 <tbody>
                   {healthMonitors.map((m) => (
-                    <tr key={m.monitor_id} className="border-b border-ink-700/40 last:border-0 hover:bg-ink-850/50">
+                    <tr key={m.monitor_id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
                       <td className="td">
-                        <Link to={`/monitors/${m.monitor_id}`} className="font-medium text-white hover:text-emerald-400">
+                        <Link to={`/monitors/${m.monitor_id}`} className="font-medium text-zinc-900 hover:text-blue-600">
                           {m.name}
                         </Link>
-                        <p className="text-xs text-slate-500">Checked {timeAgo(m.last_checked_at)}</p>
+                        <p className="text-xs text-zinc-400">Checked {timeAgo(m.last_checked_at)}</p>
                       </td>
                       <td className="td">
                         <StatusBadge status={m.status} />
                       </td>
-                      <td className="td">{formatUptime(m.uptime_pct)}</td>
-                      <td className="td">{formatMs(m.avg_response_time_ms)}</td>
+                      <td className="td font-mono tabular-nums">{formatUptime(m.uptime_pct)}</td>
+                      <td className="td font-mono tabular-nums">{formatMs(m.avg_response_time_ms)}</td>
                       <td className="td font-mono">{m.last_status_code ?? '—'}</td>
                       <td className="td">
                         {m.active_alerts > 0 ? (
                           <Link
                             to={`/alerts?monitor_id=${m.monitor_id}&status=active`}
-                            className="inline-flex items-center gap-1 font-medium text-red-400 hover:text-red-300"
+                            className="inline-flex items-center gap-1 font-medium text-red-600 hover:text-red-700"
                           >
                             <AlarmClock className="h-3.5 w-3.5" />
                             {m.active_alerts}
                           </Link>
                         ) : (
-                          <span className="text-slate-500">0</span>
+                          <span className="text-zinc-400">0</span>
                         )}
                       </td>
                     </tr>
@@ -246,7 +230,7 @@ export function Dashboard() {
           subtitle="Active alerts, most recent first"
           className="xl:col-span-2"
           action={
-            <Link to="/alerts" className="text-xs font-medium text-emerald-400 hover:text-emerald-300">
+            <Link to="/alerts" className="text-xs font-medium text-blue-600 hover:text-blue-700">
               View all →
             </Link>
           }
@@ -257,12 +241,12 @@ export function Dashboard() {
             <ErrorState message={recentAlerts.error} onRetry={recentAlerts.refetch} />
           ) : alerts.length === 0 ? (
             <div className="flex flex-col items-center py-8 text-center">
-              <CheckCircle2 className="h-8 w-8 text-emerald-400" />
-              <p className="mt-3 text-sm font-medium text-white">All quiet</p>
-              <p className="mt-1 text-xs text-slate-500">No active alerts right now.</p>
+              <CheckCircle2 className="h-8 w-8 text-green-600" />
+              <p className="mt-3 text-sm font-medium text-zinc-900">All quiet</p>
+              <p className="mt-1 text-xs text-zinc-500">No active alerts right now.</p>
             </div>
           ) : (
-            <div className="-mx-3 divide-y divide-ink-700/40">
+            <div className="-mx-3 divide-y divide-zinc-100">
               {alerts.map((a) => (
                 <AlertRowCompact key={a.id} alert={a} />
               ))}
@@ -287,7 +271,7 @@ export function Dashboard() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px] border-collapse">
               <thead>
-                <tr className="border-b border-ink-700/60">
+                <tr className="border-b border-zinc-200">
                   <th className="th">Monitor</th>
                   <th className="th">Result</th>
                   <th className="th">Response</th>
@@ -297,29 +281,29 @@ export function Dashboard() {
               </thead>
               <tbody>
                 {activity.map((r) => (
-                  <tr key={r.id} className="border-b border-ink-700/40 last:border-0 hover:bg-ink-850/50">
+                  <tr key={r.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
                     <td className="td">
-                      <Link to={`/monitors/${r.monitor_id}`} className="font-medium text-white hover:text-emerald-400">
+                      <Link to={`/monitors/${r.monitor_id}`} className="font-medium text-zinc-900 hover:text-blue-600">
                         {monitorNameById.get(r.monitor_id) || `Monitor #${r.monitor_id}`}
                       </Link>
                     </td>
                     <td className="td">
                       {r.is_success ? (
-                        <span className="inline-flex items-center gap-1.5 text-emerald-400">
+                        <span className="inline-flex items-center gap-1.5 text-green-600">
                           <CheckCircle2 className="h-4 w-4" /> Success
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-red-400">
+                        <span className="inline-flex items-center gap-1.5 text-red-600">
                           <XCircle className="h-4 w-4" /> Failed
                         </span>
                       )}
                     </td>
-                    <td className="td font-mono">
+                    <td className="td font-mono tabular-nums">
                       {r.status_code ?? '—'} · {formatMs(r.response_time_ms)}
                     </td>
                     <td className="td">{r.records_returned != null ? `${formatNumber(r.records_returned)} records` : '—'}</td>
                     <td className="td">
-                      <span className="inline-flex items-center gap-1.5 text-slate-400">
+                      <span className="inline-flex items-center gap-1.5 text-zinc-500">
                         <Clock className="h-3.5 w-3.5" />
                         {formatTimeOnly(r.checked_at)} · {timeAgo(r.checked_at)}
                       </span>

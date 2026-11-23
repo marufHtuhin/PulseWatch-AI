@@ -5,19 +5,19 @@ import { formatMs, timeAgo, truncate } from '../utils/format'
 
 export function MonitorCard({ monitor, onCheck, onToggle, onDelete, checking = false, busy = false }) {
   return (
-    <div className="card p-4 transition hover:border-ink-600 sm:p-5">
+    <div className="card p-4 transition hover:border-zinc-300">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to={`/monitors/${monitor.id}`}
-              className="truncate text-base font-semibold text-white hover:text-emerald-400"
+              className="truncate text-base font-semibold tracking-tight text-zinc-900 hover:text-blue-600"
             >
               {monitor.name}
             </Link>
             <StatusBadge status={monitor.last_status} />
             {!monitor.is_active && (
-              <span className="badge border border-slate-500/30 bg-slate-500/10 text-slate-400">Paused</span>
+              <span className="badge bg-zinc-100 text-zinc-500">Paused</span>
             )}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -26,7 +26,7 @@ export function MonitorCard({ monitor, onCheck, onToggle, onDelete, checking = f
               href={monitor.url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex max-w-full items-center gap-1 truncate font-mono text-xs text-slate-400 hover:text-emerald-400"
+              className="inline-flex max-w-full items-center gap-1 truncate font-mono text-xs text-zinc-500 hover:text-blue-600"
               title={monitor.url}
             >
               {truncate(monitor.url, 60)}
@@ -57,7 +57,7 @@ export function MonitorCard({ monitor, onCheck, onToggle, onDelete, checking = f
             {monitor.is_active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </button>
           <button
-            className="btn-icon hover:!bg-red-500/10 hover:!text-red-400"
+            className="btn-icon hover:!bg-red-50 hover:!text-red-600"
             title="Delete monitor"
             onClick={() => onDelete?.(monitor)}
             disabled={busy}
@@ -68,26 +68,26 @@ export function MonitorCard({ monitor, onCheck, onToggle, onDelete, checking = f
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-ink-700/60 pt-4 text-sm sm:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-zinc-100 pt-4 text-sm sm:grid-cols-4">
         <div>
-          <p className="text-xs text-slate-500">Last response</p>
-          <p className="mt-0.5 font-medium text-slate-200">{formatMs(monitor.last_response_time_ms)}</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Last response</p>
+          <p className="mt-0.5 font-mono font-medium tabular-nums text-zinc-900">{formatMs(monitor.last_response_time_ms)}</p>
         </div>
         <div>
-          <p className="text-xs text-slate-500">Status code</p>
-          <p className="mt-0.5 font-medium text-slate-200">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Status code</p>
+          <p className="mt-0.5 font-mono font-medium tabular-nums text-zinc-900">
             {monitor.last_status_code ?? '—'}
           </p>
         </div>
         <div>
-          <p className="text-xs text-slate-500">Interval</p>
-          <p className="mt-0.5 font-medium text-slate-200">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Interval</p>
+          <p className="mt-0.5 font-mono font-medium tabular-nums text-zinc-900">
             {monitor.interval_seconds < 60 ? `${monitor.interval_seconds}s` : `${monitor.interval_seconds / 60}m`}
           </p>
         </div>
         <div>
-          <p className="text-xs text-slate-500">Last checked</p>
-          <p className="mt-0.5 font-medium text-slate-200">{timeAgo(monitor.last_checked_at)}</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Last checked</p>
+          <p className="mt-0.5 font-medium text-zinc-900">{timeAgo(monitor.last_checked_at)}</p>
         </div>
       </div>
     </div>
@@ -95,5 +95,5 @@ export function MonitorCard({ monitor, onCheck, onToggle, onDelete, checking = f
 }
 
 export function MonitorRowSkeleton() {
-  return <div className="h-[132px] animate-pulse rounded-xl bg-ink-900" />
+  return <div className="h-[132px] animate-pulse rounded-lg bg-zinc-200/70" />
 }
