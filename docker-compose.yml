@@ -1,0 +1,54 @@
+# PulseWatch AI — Docker Compose (MySQL 8 + backend)
+#
+# Usage (Windows/macOS/Linux, Docker Desktop required):
+#   1. Copy backend/.env.example to backend/.env and adjust values.
+#      Set DATABASE_URL=mysql+pymysql://pulsewatch:pulsewatchpass@db:3306/pulsewatch
+#   2. docker compose up --build
+#   3. Backend: http://localhost:8000  |  API docs: http://localhost:8000/docs
+#   4. Frontend: run separately with `npm install && npm run dev` in frontend/
+#      (or build it and serve the dist/ folder with any static host).
+#
+# The backend container runs Alembic migrations automatically on startup.
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: pulsewatch-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: pulsewatch
+      MYSQL_USER: pulsewatch
+      MYSQL_PASSWORD: pulsewatchpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - pulsewatch-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "pulsewatch", "-ppulsewatchpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: pulsewatch-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://pulsewatch:pulsewatchpass@db:3306/pulsewatch
+      FRONTEND_URL: http://localhost:5173
+      APP_ENV: production
+      LOG_LEVEL: INFO
+      # GEMINI_API_KEY is optional — set it in backend/.env or here.
+      # GEMINI_API_KEY: ""
+    env_file:
+      - backend/.env
+    ports:
+      - "8000:8000"
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  pulsewatch-mysql:
