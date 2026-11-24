@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.alert import Alert
@@ -42,8 +42,17 @@ def percentile(values: list[float], pct: float) -> float | None:
     return data[lower] * (1 - fraction) + data[upper] * fraction
 
 
+def _owned_monitor_ids(user_id: int | None):
+    """A SELECT of one user's monitor ids, or None for "all monitors"
+    (the unscoped default, kept for service-level callers; API routes
+    always pass the current user's id)."""
+    if user_id is None:
+        return None
+    return select(Monitor.id).where(Monitor.user_id == user_id)
+
+
 def _successful_response_times(
-    db: Session, day_ago, monitor_id: int | None = None
+    db: Session, day_ago, monitor_id: int | None = None, user_id: int | None = None
 ) -> list[float]:
     """Response times of successful checks in the 24h window.
 
@@ -57,50 +66,48 @@ def _successful_response_times(
     )
     if monitor_id is not None:
         query = query.filter(MonitoringRecord.monitor_id == monitor_id)
+    owned_ids = _owned_monitor_ids(user_id)
+    if owned_ids is not None:
+        query = query.filter(MonitoringRecord.monitor_id.in_(owned_ids))
     return [row[0] for row in query.all() if row[0] is not None]
 
 
-def get_summary(db: Session) -> DashboardSummary:
+def get_summary(db: Session, user_id: int | None = None) -> DashboardSummary:
     now = utcnow()
     day_ago = now - timedelta(hours=24)
+    owned_ids = _owned_monitor_ids(user_id)
 
-    total = db.query(func.count(Monitor.id)).scalar() or 0
-    active = (
-        db.query(func.count(Monitor.id)).filter(Monitor.is_active.is_(True)).scalar() or 0
+    def _monitor_count(*extra_filters) -> int:
+        query = db.query(func.count(Monitor.id))
+        if user_id is not None:
+            query = query.filter(Monitor.user_id == user_id)
+        return query.filter(*extra_filters).scalar() or 0
+
+    def _alert_count(*extra_filters) -> int:
+        query = db.query(func.count(Alert.id))
+        if owned_ids is not None:
+            query = query.filter(Alert.monitor_id.in_(owned_ids))
+        return query.filter(*extra_filters).scalar() or 0
+
+    def _record_count(*extra_filters) -> int:
+        query = db.query(func.count(MonitoringRecord.id))
+        if owned_ids is not None:
+            query = query.filter(MonitoringRecord.monitor_id.in_(owned_ids))
+        return query.filter(*extra_filters).scalar() or 0
+
+    total = _monitor_count()
+    active = _monitor_count(Monitor.is_active.is_(True))
+    healthy = _monitor_count(Monitor.last_status == "up")
+    unhealthy = _monitor_count(Monitor.last_status == "down")
+    unknown = _monitor_count(Monitor.last_status == "unknown")
+    active_alerts = _alert_count(Alert.status == "active")
+    critical_alerts = _alert_count(
+        Alert.status == "active", Alert.severity == "critical"
     )
-    healthy = (
-        db.query(func.count(Monitor.id)).filter(Monitor.last_status == "up").scalar() or 0
-    )
-    unhealthy = (
-        db.query(func.count(Monitor.id)).filter(Monitor.last_status == "down").scalar() or 0
-    )
-    unknown = (
-        db.query(func.count(Monitor.id)).filter(Monitor.last_status == "unknown").scalar()
-        or 0
-    )
-    active_alerts = (
-        db.query(func.count(Alert.id)).filter(Alert.status == "active").scalar() or 0
-    )
-    critical_alerts = (
-        db.query(func.count(Alert.id))
-        .filter(Alert.status == "active", Alert.severity == "critical")
-        .scalar()
-        or 0
-    )
-    total_checks_24h = (
-        db.query(func.count(MonitoringRecord.id))
-        .filter(MonitoringRecord.checked_at >= day_ago)
-        .scalar()
-        or 0
-    )
-    failed_checks_24h = (
-        db.query(func.count(MonitoringRecord.id))
-        .filter(
-            MonitoringRecord.checked_at >= day_ago,
-            MonitoringRecord.is_success.is_(False),
-        )
-        .scalar()
-        or 0
+    total_checks_24h = _record_count(MonitoringRecord.checked_at >= day_ago)
+    failed_checks_24h = _record_count(
+        MonitoringRecord.checked_at >= day_ago,
+        MonitoringRecord.is_success.is_(False),
     )
     if total_checks_24h == 0:
         overall_uptime_pct = 100.0
@@ -108,15 +115,14 @@ def get_summary(db: Session) -> DashboardSummary:
         overall_uptime_pct = round(
             (total_checks_24h - failed_checks_24h) / total_checks_24h * 100, 1
         )
-    avg_rt = (
-        db.query(func.avg(MonitoringRecord.response_time_ms))
-        .filter(
-            MonitoringRecord.checked_at >= day_ago,
-            MonitoringRecord.response_time_ms.isnot(None),
-        )
-        .scalar()
+    avg_query = db.query(func.avg(MonitoringRecord.response_time_ms)).filter(
+        MonitoringRecord.checked_at >= day_ago,
+        MonitoringRecord.response_time_ms.isnot(None),
     )
-    success_rts = _successful_response_times(db, day_ago)
+    if owned_ids is not None:
+        avg_query = avg_query.filter(MonitoringRecord.monitor_id.in_(owned_ids))
+    avg_rt = avg_query.scalar()
+    success_rts = _successful_response_times(db, day_ago, user_id=user_id)
     p50 = percentile(success_rts, 50)
     p95 = percentile(success_rts, 95)
     p99 = percentile(success_rts, 99)
@@ -139,7 +145,10 @@ def get_summary(db: Session) -> DashboardSummary:
 
 
 def get_performance(
-    db: Session, monitor_id: int | None = None, hours: int = 24
+    db: Session,
+    monitor_id: int | None = None,
+    hours: int = 24,
+    user_id: int | None = None,
 ) -> PerformanceResponse:
     cutoff = utcnow() - timedelta(hours=hours)
     query = (
@@ -147,6 +156,8 @@ def get_performance(
         .join(Monitor, MonitoringRecord.monitor_id == Monitor.id)
         .filter(MonitoringRecord.checked_at >= cutoff)
     )
+    if user_id is not None:
+        query = query.filter(Monitor.user_id == user_id)
     if monitor_id is not None:
         query = query.filter(MonitoringRecord.monitor_id == monitor_id)
     rows = query.order_by(MonitoringRecord.checked_at.asc()).all()
@@ -170,9 +181,12 @@ def get_performance(
     return PerformanceResponse(points=points)
 
 
-def get_health(db: Session) -> HealthResponse:
+def get_health(db: Session, user_id: int | None = None) -> HealthResponse:
     day_ago = utcnow() - timedelta(hours=24)
-    monitors = db.query(Monitor).order_by(Monitor.id.asc()).all()
+    query = db.query(Monitor)
+    if user_id is not None:
+        query = query.filter(Monitor.user_id == user_id)
+    monitors = query.order_by(Monitor.id.asc()).all()
     items: list[MonitorHealthItem] = []
     for monitor in monitors:
         base = db.query(MonitoringRecord).filter(

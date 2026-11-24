@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router, root_router
+from app.core.auth import bootstrap_admin
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.database.connection import SessionLocal
@@ -37,6 +38,11 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     else:
         db = SessionLocal()
         try:
+            # Before the scheduler starts: create the admin user (if the
+            # ADMIN_* vars are set) and claim pre-v4 ownerless monitors /
+            # settings rows for them. No-op when the vars are unset, and
+            # never breaks startup (see bootstrap_admin).
+            bootstrap_admin(db)
             start_scheduler(db)
         finally:
             db.close()

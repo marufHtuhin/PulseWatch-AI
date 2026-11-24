@@ -1,5 +1,6 @@
 import { NavLink, Link } from 'react-router-dom'
-import { Activity, Bell, LayoutDashboard, MonitorCheck, Plus, Settings, X } from 'lucide-react'
+import { Activity, Bell, LayoutDashboard, LogOut, MonitorCheck, Plus, Settings, X } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -9,6 +10,8 @@ const NAV_ITEMS = [
 ]
 
 export function Sidebar({ open, onClose }) {
+  const { user, logout } = useAuth()
+
   return (
     <>
       {/* Mobile overlay */}
@@ -54,7 +57,25 @@ export function Sidebar({ open, onClose }) {
           })}
         </nav>
 
-        <div className="border-t border-zinc-200 p-3">
+        <div className="space-y-2 border-t border-zinc-200 p-3">
+          {user && (
+            <div className="flex items-center gap-2 px-1">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-xs font-semibold uppercase text-zinc-700">
+                {user.email?.charAt(0) || '?'}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm text-zinc-700" title={user.email}>
+                {user.email}
+              </span>
+              <button
+                className="btn-icon shrink-0"
+                onClick={logout}
+                title="Log out"
+                aria-label="Log out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <Link to="/monitors/new" onClick={onClose} className="btn-primary w-full">
             <Plus className="h-4 w-4" />
             New Monitor

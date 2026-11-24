@@ -161,7 +161,9 @@ def test_cleanup_respects_custom_retention_days(db, make_monitor):
     _seed_record(db, monitor.id, days_ago=3)
     db.commit()
 
-    row = get_or_create_settings(db)
+    # The retention window must live on the MONITOR owner's settings row:
+    # unscoped cleanup applies each owner's own windows to their data.
+    row = get_or_create_settings(db, user_id=monitor.user_id)
     row.retention_days = 7
     db.commit()
 

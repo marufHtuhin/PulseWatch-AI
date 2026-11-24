@@ -59,6 +59,10 @@ and the dashboard all work with zero configuration.
 - **Settings** — persisted defaults for interval, timeout, latency
   threshold, and batch concurrency, plus Telegram notification settings
   and data retention windows.
+- **Authentication + multi-user** — open registration, bcrypt
+  passwords, JWT access tokens (24h). Every account sees only its
+  own monitors, alerts, dashboard data, and settings; another user's
+  objects return 404, never 403.
 
 ## Screenshots
 
@@ -247,18 +251,65 @@ windows are configurable in **Settings → Data retention**, which also
 shows a preview of what a cleanup would delete and a **Clean up now**
 button to run it immediately.
 
+## Authentication
+
+PulseWatch is multi-user. **Registration is open** — anyone can create
+an account from the login page; there is no invite flow and no admin
+approval step.
+
+- **Register / log in** in the UI, or directly against the API:
+  `POST /api/auth/register` (`{email, password}`, 201) and
+  `POST /api/auth/login` (`{email, password}`, 200). Both return a JWT
+  access token (`token_type: "bearer"`); `GET /api/auth/me` returns the
+  current user. Passwords must be 8–128 characters and are stored as
+  bcrypt hashes — never plaintext, never returned by any endpoint.
+- **Tokens** are JWTs (HS256, `sub` = user id) valid for **24 hours**.
+  The frontend stores the token in `localStorage` and sends it as
+  `Authorization: Bearer <token>` on every API call. All `/api/*`
+  endpoints except `/api/auth/*` require a token; `/`, `/health`, and
+  `/docs` stay public. A missing token is 401
+  (`Authentication required`); an invalid or expired token is 401
+  (`Could not validate credentials`).
+- **Per-user isolation** — monitors, check records, alerts, dashboard
+  data, Telegram settings, and retention windows all belong to one
+  account. Requesting another user's object by id returns **404**
+  (not 403, so existence does not leak), and batch checks silently
+  skip monitors the caller does not own.
+- **`SECRET_KEY` is required in production.** It signs the JWTs, and
+  the app refuses to start with `APP_ENV=production` unless it is set
+  to a real value (the dev default is rejected). Generate one with:
+
+  ```bash
+  python -c "import secrets; print(secrets.token_hex(32))"
+  ```
+
+  Set it in `backend/.env` locally (see
+  [`backend/.env.example`](backend/.env.example)) or as a Render
+  environment variable — the Blueprint prompts for it on first deploy.
+- **Admin bootstrap (upgrading a pre-v4 deployment).** Monitors and
+  settings created before auth existed are ownerless (`user_id` NULL)
+  and invisible to every account. Set both `ADMIN_EMAIL` and
+  `ADMIN_PASSWORD` (Render Dashboard → Environment, or `backend/.env`)
+  and, on the next startup, the app creates that admin account if it
+  does not exist yet and assigns **all** ownerless monitors — plus one
+  ownerless settings row — to it. The bootstrap is idempotent and
+  never breaks startup; it is skipped entirely under pytest. Once
+  your data is claimed, the variables can stay set (later boots are
+  no-ops) or be removed.
+
 ## Database Schema
 
-Five tables, identical on MySQL and SQLite (two dialect-agnostic Alembic
-migrations: `0001_initial`, `0002_v3_upgrades`):
+Six tables, identical on MySQL and SQLite (three dialect-agnostic Alembic
+migrations: `0001_initial`, `0002_v3_upgrades`, `0003_v4_auth`):
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `monitors` | Watched endpoints | `id`, `name`, `url`, `method`, `headers` (JSON, secrets stored verbatim — masked at the API boundary), `request_body`, `timeout_seconds`, `interval_seconds`, `expected_status_codes`, `expected_fields`, `check_zero_records`, `latency_threshold_ms`, `max_response_size_bytes`, `alert_after_failures`, `consecutive_failures`, `cert_expires_at`, `cert_checked_at`, `is_active`, `last_status`, `last_response_time_ms`, `last_status_code`, `last_checked_at` |
+| `users` | Accounts (auth) | `id`, `email` (unique), `password_hash` (bcrypt), `is_active`, `created_at` |
+| `monitors` | Watched endpoints | `id`, `user_id` (FK → `users`, owner; NULL = pre-v4 ownerless), `name`, `url`, `method`, `headers` (JSON, secrets stored verbatim — masked at the API boundary), `request_body`, `timeout_seconds`, `interval_seconds`, `expected_status_codes`, `expected_fields`, `check_zero_records`, `latency_threshold_ms`, `max_response_size_bytes`, `alert_after_failures`, `consecutive_failures`, `cert_expires_at`, `cert_checked_at`, `is_active`, `last_status`, `last_response_time_ms`, `last_status_code`, `last_checked_at` |
 | `monitoring_records` | One row per check (metadata only) | `id`, `monitor_id` (FK, cascade), `response_time_ms`, `status_code`, `response_size_bytes`, `records_returned`, `is_success`, `error_message`, `checked_at`, `content_type`, `is_valid_json` |
 | `anomalies` | One row per rule hit | `id`, `monitor_id` (FK, cascade), `record_id` (FK, cascade), `anomaly_type`, `severity`, `description`, `detected_at` |
 | `alerts` | User-facing incidents, deduplicated | `id`, `monitor_id` (FK, cascade), `anomaly_id` (FK, SET NULL), `anomaly_type`, `title`, `severity`, `summary`, `possible_cause`, `recommended_action`, `status` (active/acknowledged/resolved), `ai_generated`, `occurrence_count`, `last_seen_at`, `created_at`, `acknowledged_at`, `resolved_at` |
-| `settings` | Single row (id = 1) of user defaults | `default_interval_seconds`, `default_timeout_seconds`, `default_latency_threshold_ms`, `max_concurrency`, `telegram_bot_token`, `telegram_chat_id`, `telegram_enabled`, `telegram_min_severity`, `retention_days`, `alert_retention_days` |
+| `settings` | One row per user of user defaults | `user_id` (FK → `users`, unique; NULL = pre-v4 ownerless row), `default_interval_seconds`, `default_timeout_seconds`, `default_latency_threshold_ms`, `max_concurrency`, `telegram_bot_token`, `telegram_chat_id`, `telegram_enabled`, `telegram_min_severity`, `retention_days`, `alert_retention_days` |
 
 Deleting a monitor cascades to its records, anomalies, and alerts.
 
@@ -271,6 +322,9 @@ Base URL (dev): `http://127.0.0.1:8000`. Full contract:
 |---|---|
 | `GET /` | Root: `{status, project, version}` |
 | `GET /health` | Health: `{status, db, scheduler}` |
+| `POST /api/auth/register` | Register (open): `{email, password}` → 201 `{user, access_token, token_type}` |
+| `POST /api/auth/login` | Log in: `{email, password}` → 200 `{access_token, token_type}` (401 on bad credentials) |
+| `GET /api/auth/me` | Current user `{id, email, created_at}` (requires token) |
 | `POST /api/monitors` | Create monitor (201) |
 | `GET /api/monitors` | List monitors (`search`, `is_active`, `status`, `page`, `page_size`) |
 | `GET /api/monitors/{id}` | Get one monitor (404 if missing) |
@@ -297,6 +351,9 @@ Base URL (dev): `http://127.0.0.1:8000`. Full contract:
 
 List endpoints return `{items, total, page, page_size}`. Errors use
 FastAPI's default `{detail}` shape with proper HTTP status codes.
+Every `/api/*` endpoint except the three `/api/auth/*` ones requires a
+Bearer token (`Authorization: Bearer <token>`); unauthenticated
+requests get 401, and another user's object by id gets 404.
 
 ## Project Structure
 
@@ -317,16 +374,18 @@ pulsewatch-ai/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── .env.example
-│   ├── alembic.ini / alembic/ # Migrations (0001_initial, 0002_v3_upgrades)
+│   ├── alembic.ini / alembic/ # Migrations (0001_initial, 0002_v3_upgrades,
+│   │                           #   0003_v4_auth)
 │   ├── pytest.ini
-│   ├── tests/                 # pytest suite (285 tests)
+│   ├── tests/                 # pytest suite (315 tests)
 │   └── app/
 │       ├── main.py            # FastAPI app + lifespan (scheduler start)
-│       ├── api/routes/        # health, monitors, monitoring, alerts,
+│       ├── api/routes/        # health, auth, monitors, monitoring, alerts,
 │       │                      #   dashboard, settings
-│       ├── core/              # config, logging, security (SSRF + masking)
+│       ├── core/              # config, logging, security (SSRF + masking),
+│       │                      #   auth (bcrypt + JWT + admin bootstrap)
 │       ├── database/          # engine/session, declarative base
-│       ├── models/            # Monitor, MonitoringRecord, Anomaly,
+│       ├── models/            # User, Monitor, MonitoringRecord, Anomaly,
 │       │                      #   Alert, AppSettings
 │       ├── schemas/           # Pydantic request/response models
 │       ├── services/          # monitoring, http, http_client, anomaly,
@@ -453,6 +512,8 @@ All backend settings live in `backend/.env` (copy from
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./pulsewatch.db` | MySQL: `mysql+pymysql://user:pass@host:3306/pulsewatch` |
+| `SECRET_KEY` | `dev-secret-change-me` | **Required in production** (`APP_ENV=production` refuses to start without a real value). Signs the JWTs. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | _(empty)_ | Optional. When **both** are set, startup creates that admin account (if missing) and assigns all ownerless pre-v4 monitors + one ownerless settings row to it. See [Authentication](#authentication). |
 | `GEMINI_API_KEY` | _(empty)_ | Optional. Without it, alerts use deterministic fallback templates. |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model for AI incident explanations. |
 | `TELEGRAM_BOT_TOKEN` | _(empty)_ | Optional fallback for Telegram notifications. A token saved in Settings wins over this. |
@@ -508,8 +569,15 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**285 tests, all passing** (last run: 24 Nov 2026), covering:
+**315 tests, all passing** (last run: 24 Nov 2026), covering:
 
+- Auth: registration (201 + token, duplicate email 400, short password
+  / invalid email 422), login (success, wrong password / unknown user
+  401 with one message), `/me` (missing / invalid / expired token and
+  deactivated user all 401), cross-user isolation (another user's
+  monitor/alerts return 404 or are excluded from lists, batch checks
+  skip foreign ids, settings isolated per user), and the admin
+  bootstrap claiming ownerless monitors + settings
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
 - All 11 anomaly rules individually (incl. severity tiers, the
@@ -543,6 +611,10 @@ pytest tests/ -v
   mixed DNS results, DNS failure, `ALLOW_LOCAL_URLS` override)
 
 Test output is written to `backend/logs/pytest.log`.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the full backend
+pytest suite (Python 3.12) and the frontend production build (Node 20)
+on every push and pull request.
 
 ## Common Errors & Solutions
 
@@ -578,15 +650,23 @@ Test output is written to `backend/logs/pytest.log`.
   to Google's Generative Language API.
 - **Response bodies are never stored** and never sent to Gemini — only
   metadata (status, timings, sizes, anomaly types, baselines).
-- **No authentication (yet)** — anyone who can reach the backend can
-  use the API. Do not expose the backend publicly without adding auth
-  (see Limitations). CORS is restricted to `FRONTEND_URL`.
+- **Authentication** — bcrypt password hashes (never stored or returned
+  as plaintext), JWT access tokens (HS256, 24h) signed with `SECRET_KEY`
+  — required in production, where the dev default is rejected at
+  startup. Every `/api/*` endpoint except `/api/auth/*` requires a
+  valid token; per-user scoping means one account cannot read, modify,
+  or delete another's data (cross-user access returns 404). CORS is
+  restricted to `FRONTEND_URL`.
 
 ## Limitations
 
-- **No authentication or multi-user support.** The API is open to
-  anyone who can reach it. Fine for local use; not safe to expose
-  publicly as-is.
+- **Auth is deliberately minimal (v4).** Registration is open, and
+  there is **no email verification, no rate limiting on login, no
+  password reset, no refresh tokens, and no payments/subscriptions**.
+  JWTs live in `localStorage` (not httpOnly cookies) and expire after
+  24 hours, after which the user logs in again. These are future work
+  (see Roadmap), not oversights — the current design trades them for a
+  zero-dependency, free-tier-friendly deployment.
 - **MySQL was not verified in this sandbox** (no MySQL server, no
   Docker here). The schema and migration are dialect-agnostic and the
   code paths are identical, but the first real MySQL run should be
@@ -609,13 +689,14 @@ Test output is written to `backend/logs/pytest.log`.
 
 ## Roadmap
 
-- Authentication (JWT) + per-user monitors.
+- Auth hardening: email verification, login rate limiting, password
+  reset, refresh tokens, httpOnly-cookie token storage.
 - Alert notifications: email, Slack, and generic webhooks (Telegram is
   already implemented).
 - Uptime history charts per monitor (30-day view) and status pages.
 - Distributed scheduler locking (or a single-worker deployment note)
   for multi-replica setups.
-- Frontend tests (Vitest + Testing Library) — the backend has 285
+- Frontend tests (Vitest + Testing Library) — the backend has 315
   tests; the frontend currently has none.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.

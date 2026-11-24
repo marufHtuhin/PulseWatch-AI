@@ -96,7 +96,12 @@ async def test_batch_concurrency_limit_is_respected(db, make_monitor):
 
 # --- POST /api/monitoring/batch (route level) -------------------------------
 
-def test_api_batch_partial_success_and_counts(client, db, make_monitor, monkeypatch):
+def test_api_batch_skips_unknown_ids_and_reports_counts(client, db, make_monitor, monkeypatch):
+    """Route level: unknown ids are silently skipped (v4 scoping — the
+    route keeps only monitors the caller owns before running the batch),
+    so results contain only the owned monitors. Partial-success
+    semantics for unknown ids live at the service level; see
+    test_batch_partial_success_mixed_valid_and_invalid_ids."""
     import app.api.routes.monitoring as monitoring_route
     from app.services import monitoring_service
 
@@ -118,13 +123,10 @@ def test_api_batch_partial_success_and_counts(client, db, make_monitor, monkeypa
     assert response.status_code == 200
     body = response.json()
     assert body["succeeded"] == 2
-    assert body["failed"] == 1
-    assert len(body["results"]) == 3
+    assert body["failed"] == 0
+    assert len(body["results"]) == 2  # 999999 silently skipped
+    assert {r["monitor_id"] for r in body["results"]} == {m1.id, m2.id}
     assert body["elapsed_ms"] >= 0
-    failed = [r for r in body["results"] if not r["success"]]
-    assert len(failed) == 1
-    assert failed[0]["monitor_id"] == 999999
-    assert "not found" in failed[0]["error"]
 
 
 def test_api_batch_dedupes_ids(client, db, make_monitor, monkeypatch):

@@ -16,6 +16,39 @@ Base URL (dev): backend on http://127.0.0.1:8000. Frontend dev server proxies
   - alert status: `active | acknowledged | resolved`
   - anomaly_type: `HIGH_RESPONSE_TIME | HTTP_ERROR | TIMEOUT | NETWORK_ERROR | ZERO_RECORDS | INVALID_RESPONSE | MISSING_FIELDS | LARGE_RESPONSE | UNEXPECTED_STATUS | HISTORICAL_ANOMALY | SSL_EXPIRING`
 
+## Authentication
+
+All `/api/*` endpoints except `/api/auth/*` require a Bearer token:
+`Authorization: Bearer <access_token>`. `/`, `/health`, and `/docs`
+stay public.
+
+- `POST /api/auth/register` — body `{ "email": "...", "password": "..." }`
+  (valid email, password 8–128 chars). Returns **201** +
+  `{ "user": { "id": 1, "email": "...", "created_at": "..." },
+  "access_token": "...", "token_type": "bearer" }`. Registration is
+  **open**: anyone can create an account. Duplicate email → **400**
+  `{ "detail": "Email already registered" }`. Invalid email or a
+  password shorter than 8 chars → **422** (Pydantic validation).
+- `POST /api/auth/login` — body `{ "email": "...", "password": "..." }`
+  (JSON, not form data). Returns **200** +
+  `{ "access_token": "...", "token_type": "bearer" }`. Unknown user,
+  wrong password, or deactivated account all return **401**
+  `{ "detail": "Invalid email or password" }` — one message for every
+  failure, so the endpoint cannot enumerate users.
+- `GET /api/auth/me` — returns `{ "id": 1, "email": "...",
+  "created_at": "..." }` for the token's user.
+- Tokens are JWTs (HS256, `sub` = user id), valid for **24 hours**.
+  Passwords are bcrypt-hashed; a hash is never returned by any endpoint.
+- Missing token → **401** `{ "detail": "Authentication required" }`.
+  Invalid, expired, or forged token, or a token for a deleted or
+  deactivated user → **401** `{ "detail": "Could not validate
+  credentials" }`.
+- **Per-user scoping:** every user sees only their own monitors,
+  records, alerts, dashboard data, and settings row. Accessing
+  another user's object by id returns **404**, not 403 (no existence
+  leak). `POST /api/monitoring/batch` silently skips ids the caller
+  does not own — they simply do not appear in `results`.
+
 ## Health
 - `GET /` -> `{ "status": "ok", "project": "PulseWatch AI", "version": "1.0.0" }`
 - `GET /health` -> `{ "status": "ok", "db": "ok", "scheduler": "running" }`
@@ -66,7 +99,7 @@ MonitoringRecord object:
 ```
 - `GET /api/monitoring/history` — query: `monitor_id`, `is_success`, `from`, `to` (ISO datetimes), `page`, `page_size`. Returns list envelope of records (without anomalies embedded, to keep it light).
 - `GET /api/monitoring/history/{monitor_id}` — same, scoped to one monitor.
-- `POST /api/monitoring/batch` — body `{ "monitor_ids": [1,2,3] }` (max 50). Runs checks concurrently (bounded), returns `{ "results": [ { "monitor_id": 1, "success": true, "record": {...} | null, "error": null | "..." } ], "succeeded": 2, "failed": 1, "elapsed_ms": 1234 }`. Partial success is required.
+- `POST /api/monitoring/batch` — body `{ "monitor_ids": [1,2,3] }` (max 50). Runs checks concurrently (bounded), returns `{ "results": [ { "monitor_id": 1, "success": true, "record": {...} | null, "error": null | "..." } ], "succeeded": 2, "failed": 1, "elapsed_ms": 1234 }`. Partial success is required. Ids the caller does not own (another user's, or nonexistent) are silently skipped — they do not appear in `results`.
 
 ## Alerts
 Alert object:
@@ -109,7 +142,7 @@ Alert object:
 
 ## Settings (extra, for the Settings page)
 - `GET /api/settings` -> `{ "default_interval_seconds": 300, "default_timeout_seconds": 10, "default_latency_threshold_ms": 3000, "max_concurrency": 10, "gemini_configured": false, "allow_local_urls": false, "app_env": "development", "telegram_enabled": false, "telegram_min_severity": "high", "telegram_configured": false, "retention_days": 90, "alert_retention_days": 365 }`
-- `PUT /api/settings` — body: any subset of the mutable fields. `gemini_configured` / `app_env` are read-only (they come from env config). Persisted in a `settings` table (single row, id = 1).
+- `PUT /api/settings` — body: any subset of the mutable fields. `gemini_configured` / `app_env` are read-only (they come from env config). Settings are **per-user**: each account has its own row (keyed by `user_id`), so Telegram credentials and retention windows never leak between users.
   - `telegram_enabled` (bool, default false), `telegram_min_severity` (`warning | high | critical`, default `high`).
   - `telegram_configured` (bool, read-only): true when a bot token AND a chat id are available, from the DB or from env (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`). **The token itself is never returned by any response.**
   - `telegram_bot_token` / `telegram_chat_id` (write-only via PUT): send `"********"` for the token to keep the stored value, `null` to clear it (env fallback then applies), or a new value to replace it. DB values win over env vars; env vars are the fallback.
@@ -140,5 +173,5 @@ Alert object:
 ## Scheduler
 - APScheduler AsyncIOScheduler, single instance in FastAPI lifespan. One interval job per active monitor, `max_instances=1`, `coalesce=True`, `misfire_grace_time` = interval.
 - Toggle/create/update/delete of a monitor reschedules immediately. Jobs run the same check pipeline as manual checks.
-- A daily retention-cleanup job (`retention_cleanup`) runs at 03:00 UTC and deletes expired records/anomalies and old resolved alerts per the retention settings.
+- A daily retention-cleanup job (`retention_cleanup`) runs at 03:00 UTC and deletes expired records/anomalies and old resolved alerts per each owner's retention settings (ownerless pre-v4 data uses the defaults).
 - Scheduler must not start during pytest (guard with env or lifespan test handling).

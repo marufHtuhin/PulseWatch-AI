@@ -1,4 +1,9 @@
-"""Monitor CRUD + manual check endpoints."""
+"""Monitor CRUD + manual check endpoints.
+
+All endpoints require authentication and are scoped to the current user:
+a monitor owned by another user behaves exactly as if it did not exist
+(404, never 403 — no cross-user information leak).
+"""
 from __future__ import annotations
 
 from typing import Literal
@@ -7,10 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.logging import get_logger
 from app.core.security import merge_headers
 from app.database.connection import get_db
 from app.models.monitor import Monitor
+from app.models.user import User
 from app.scheduler.jobs import reschedule_monitor, unschedule_monitor
 from app.schemas.common import PaginatedResponse
 from app.schemas.monitor import (
@@ -27,21 +34,36 @@ logger = get_logger("api.monitors")
 router = APIRouter(prefix="/monitors", tags=["monitors"])
 
 
-def _get_monitor_or_404(db: Session, monitor_id: int) -> Monitor:
-    monitor = db.get(Monitor, monitor_id)
+def _get_monitor_or_404(db: Session, monitor_id: int, user_id: int) -> Monitor:
+    """The monitor, only if it belongs to this user — another user's
+    monitor (or a missing one) is a 404."""
+    monitor = (
+        db.query(Monitor)
+        .filter(Monitor.id == monitor_id, Monitor.user_id == user_id)
+        .first()
+    )
     if monitor is None:
         raise HTTPException(status_code=404, detail=f"Monitor {monitor_id} not found")
     return monitor
 
 
 @router.post("", response_model=MonitorResponse, status_code=201)
-def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> MonitorResponse:
-    monitor = Monitor(**payload.model_dump())
+def create_monitor(
+    payload: MonitorCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MonitorResponse:
+    monitor = Monitor(**payload.model_dump(), user_id=current_user.id)
     db.add(monitor)
     db.commit()
     db.refresh(monitor)
     reschedule_monitor(monitor)
-    logger.info("monitor created id=%s name=%s", monitor.id, monitor.name)
+    logger.info(
+        "monitor created id=%s name=%s user_id=%s",
+        monitor.id,
+        monitor.name,
+        current_user.id,
+    )
     return monitor_to_response(monitor)
 
 
@@ -53,8 +75,9 @@ def list_monitors(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> PaginatedResponse[MonitorResponse]:
-    query = db.query(Monitor)
+    query = db.query(Monitor).filter(Monitor.user_id == current_user.id)
     if search:
         pattern = f"%{search}%"
         query = query.filter(or_(Monitor.name.ilike(pattern), Monitor.url.ilike(pattern)))
@@ -78,15 +101,22 @@ def list_monitors(
 
 
 @router.get("/{monitor_id}", response_model=MonitorResponse)
-def get_monitor(monitor_id: int, db: Session = Depends(get_db)) -> MonitorResponse:
-    return monitor_to_response(_get_monitor_or_404(db, monitor_id))
+def get_monitor(
+    monitor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MonitorResponse:
+    return monitor_to_response(_get_monitor_or_404(db, monitor_id, current_user.id))
 
 
 @router.put("/{monitor_id}", response_model=MonitorResponse)
 def update_monitor(
-    monitor_id: int, payload: MonitorUpdate, db: Session = Depends(get_db)
+    monitor_id: int,
+    payload: MonitorUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> MonitorResponse:
-    monitor = _get_monitor_or_404(db, monitor_id)
+    monitor = _get_monitor_or_404(db, monitor_id, current_user.id)
     data = payload.model_dump()
     # "********" on a secret header keeps the stored value.
     data["headers"] = merge_headers(monitor.headers, payload.headers)
@@ -100,8 +130,12 @@ def update_monitor(
 
 
 @router.patch("/{monitor_id}/toggle", response_model=MonitorResponse)
-def toggle_monitor(monitor_id: int, db: Session = Depends(get_db)) -> MonitorResponse:
-    monitor = _get_monitor_or_404(db, monitor_id)
+def toggle_monitor(
+    monitor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MonitorResponse:
+    monitor = _get_monitor_or_404(db, monitor_id, current_user.id)
     monitor.is_active = not monitor.is_active
     db.commit()
     db.refresh(monitor)
@@ -113,8 +147,12 @@ def toggle_monitor(monitor_id: int, db: Session = Depends(get_db)) -> MonitorRes
 
 
 @router.delete("/{monitor_id}", status_code=204)
-def delete_monitor(monitor_id: int, db: Session = Depends(get_db)) -> Response:
-    monitor = _get_monitor_or_404(db, monitor_id)
+def delete_monitor(
+    monitor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    monitor = _get_monitor_or_404(db, monitor_id, current_user.id)
     unschedule_monitor(monitor.id)
     db.delete(monitor)  # cascades records / anomalies / alerts
     db.commit()
@@ -123,7 +161,14 @@ def delete_monitor(monitor_id: int, db: Session = Depends(get_db)) -> Response:
 
 
 @router.post("/{monitor_id}/check", response_model=CheckResponse)
-async def check_monitor(monitor_id: int, db: Session = Depends(get_db)) -> CheckResponse:
+async def check_monitor(
+    monitor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CheckResponse:
+    # Ownership check first: another user's monitor must 404 without
+    # running (or leaking) a check.
+    _get_monitor_or_404(db, monitor_id, current_user.id)
     try:
         outcome = await run_check(db, monitor_id)
     except MonitorNotFoundError:

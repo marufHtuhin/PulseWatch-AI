@@ -17,6 +17,7 @@ import asyncio
 import ipaddress
 import os
 import tempfile
+import uuid
 
 import pytest
 
@@ -62,9 +63,57 @@ def db(reset_db):
 
 
 @pytest.fixture()
-def client(reset_db):
-    """TestClient with the lifespan executed (scheduler stays disabled)."""
+def anon_client(reset_db):
+    """Plain TestClient with no auth headers — for unauthenticated tests."""
     with TestClient(app) as test_client:
+        yield test_client
+
+
+TEST_USER_EMAIL = "test@example.com"
+TEST_USER_PASSWORD = "test-password-123"
+
+
+def register_user(client, email=None, password=TEST_USER_PASSWORD) -> dict:
+    """Register a fresh user via POST /api/auth/register.
+
+    Returns ``{"id", "email", "token", "headers"}``; ``headers`` is the
+    ``Authorization: Bearer <token>`` dict to pass to requests as that
+    user. Each call registers a different user (unique email) unless an
+    explicit email is given.
+    """
+    email = email or f"user-{uuid.uuid4().hex[:12]}@example.com"
+    response = client.post(
+        "/api/auth/register", json={"email": email, "password": password}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    return {
+        "id": body["user"]["id"],
+        "email": body["user"]["email"],
+        "token": body["access_token"],
+        "headers": {"Authorization": f"Bearer {body['access_token']}"},
+    }
+
+
+def auth_headers(client, email=None) -> dict:
+    """Register a fresh user via the API; return its Authorization headers."""
+    return register_user(client, email=email)["headers"]
+
+
+@pytest.fixture()
+def client(reset_db):
+    """TestClient auto-authenticated as a fresh test user.
+
+    Registers a new user via the API, sets the Authorization header, and
+    exposes the user as ``client.test_user_id`` / ``client.test_user_email``
+    so ``make_monitor`` can seed monitors the API can see. Every test gets
+    a fresh user (the database is reset per test).
+    """
+    with TestClient(app) as test_client:
+        user = register_user(test_client, email=TEST_USER_EMAIL)
+        test_client.headers.update(user["headers"])
+        test_client.test_user_id = user["id"]
+        test_client.test_user_email = user["email"]
         yield test_client
 
 
@@ -122,8 +171,13 @@ def monitor_payload(**overrides) -> dict:
 
 
 @pytest.fixture()
-def make_monitor(db):
-    """Factory that inserts a Monitor row directly and returns it."""
+def make_monitor(db, client):
+    """Factory that inserts a Monitor row directly and returns it.
+
+    Seeded monitors belong to the authed test user by default — a monitor
+    with ``user_id=None`` is ownerless and invisible to every user via the
+    API. Pass ``user_id`` explicitly (including ``None``) to override.
+    """
 
     def _make(**overrides) -> Monitor:
         data = {
@@ -138,6 +192,7 @@ def make_monitor(db):
             "latency_threshold_ms": 3000,
             "max_response_size_bytes": 1048576,
             "is_active": True,
+            "user_id": client.test_user_id,
         }
         data.update(overrides)
         monitor = Monitor(**data)

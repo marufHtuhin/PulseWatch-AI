@@ -5,7 +5,7 @@ No secrets are ever hardcoded here.
 """
 from __future__ import annotations
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     DATABASE_URL: str = "sqlite:///./pulsewatch.db"
+    # JWT signing key (HS256). The dev default is rejected in production by
+    # the validator below — set a real one (e.g. `secrets.token_hex(32)`).
+    SECRET_KEY: str = "dev-secret-change-me"
+    # Optional admin bootstrap: when BOTH are set, startup creates this
+    # user (if missing) and assigns all ownerless monitors/settings rows
+    # to them. Never set in tests (bootstrap is skipped when TESTING).
+    ADMIN_EMAIL: str | None = None
+    ADMIN_PASSWORD: str | None = None
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     # Telegram notifications: env fallback for the credentials. A value
@@ -55,6 +63,24 @@ class Settings(BaseSettings):
         if value.startswith("mysql://"):
             value = "mysql+pymysql://" + value[len("mysql://"):]
         return value
+
+    @model_validator(mode="after")
+    def _require_secret_key_in_production(self) -> "Settings":
+        """Fail fast in production without a real JWT signing key.
+
+        Tests and local dev run with APP_ENV=development, so the dev
+        default is fine there; production must set SECRET_KEY explicitly
+        (Render prompts for it — see render.yaml).
+        """
+        if self.APP_ENV == "production" and (
+            not self.SECRET_KEY or self.SECRET_KEY == "dev-secret-change-me"
+        ):
+            raise ValueError(
+                "SECRET_KEY must be set to a strong random value when "
+                "APP_ENV=production. Generate one with: python -c "
+                "\"import secrets; print(secrets.token_hex(32))\""
+            )
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

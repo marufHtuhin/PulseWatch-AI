@@ -1,14 +1,16 @@
-"""Settings endpoints (single-row persisted defaults)."""
+"""Settings endpoints (one persisted row per user)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.config import settings as app_settings
 from app.core.logging import get_logger
 from app.core.security import MASKED_VALUE
 from app.database.connection import get_db
 from app.models.settings import AppSettings
+from app.models.user import User
 from app.schemas.settings import (
     CleanupResult,
     SettingsOut,
@@ -49,13 +51,20 @@ def _to_response(row: AppSettings) -> SettingsOut:
 
 
 @router.get("", response_model=SettingsOut)
-def get_settings(db: Session = Depends(get_db)) -> SettingsOut:
-    return _to_response(get_or_create_settings(db))
+def get_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SettingsOut:
+    return _to_response(get_or_create_settings(db, current_user.id))
 
 
 @router.put("", response_model=SettingsOut)
-def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)) -> SettingsOut:
-    row = get_or_create_settings(db)
+def update_settings(
+    payload: SettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SettingsOut:
+    row = get_or_create_settings(db, current_user.id)
     updates = payload.model_dump(exclude_unset=True)
     # "********" on the bot token keeps the stored value (same pattern as
     # monitor secret headers); an explicit null clears it (env fallback
@@ -71,25 +80,36 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)) -> S
 
 
 @router.post("/test-notification", response_model=TestNotificationResult)
-async def test_notification(db: Session = Depends(get_db)) -> TestNotificationResult:
-    """Send a Telegram test message with the effective config.
+async def test_notification(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TestNotificationResult:
+    """Send a Telegram test message with the current user's effective config.
 
     Always returns 200: when Telegram is not configured the body reports
     success=false instead of raising.
     """
-    success, detail = await send_test_notification(db)
+    success, detail = await send_test_notification(db, user_id=current_user.id)
     return TestNotificationResult(success=success, detail=detail)
 
 
 @router.post("/cleanup", response_model=CleanupResult)
-def cleanup_now(db: Session = Depends(get_db)) -> CleanupResult:
-    """Run the retention cleanup immediately and return what was deleted."""
-    counts = run_cleanup(db)
+def cleanup_now(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CleanupResult:
+    """Run the retention cleanup for the current user's data immediately
+    and return what was deleted."""
+    counts = run_cleanup(db, user_id=current_user.id)
     logger.info("manual cleanup run records=%s", counts["records_deleted"])
     return CleanupResult(**counts)
 
 
 @router.get("/cleanup-preview", response_model=CleanupResult)
-def cleanup_preview(db: Session = Depends(get_db)) -> CleanupResult:
-    """Preview what a retention cleanup would delete (no deletion)."""
-    return CleanupResult(**preview_cleanup(db))
+def cleanup_preview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CleanupResult:
+    """Preview what a retention cleanup of the current user's data would
+    delete (no deletion)."""
+    return CleanupResult(**preview_cleanup(db, user_id=current_user.id))

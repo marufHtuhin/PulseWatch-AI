@@ -27,6 +27,7 @@ from app.models.alert import Alert
 from app.models.monitor import Monitor
 from app.models.settings import AppSettings
 from app.services.http_client import build_async_client
+from app.services.settings_service import get_settings_row
 from app.utils.time import to_naive_utc
 
 logger = get_logger("notifications")
@@ -57,10 +58,14 @@ def resolve_telegram_credentials(
     return token, chat_id
 
 
-def get_effective_telegram_config(db: Session) -> TelegramConfig | None:
-    """The effective Telegram config, or None when no credentials exist
-    (neither DB nor env provides both a token and a chat id)."""
-    row = db.query(AppSettings).filter(AppSettings.id == 1).first()
+def get_effective_telegram_config(
+    db: Session, user_id: int | None = None
+) -> TelegramConfig | None:
+    """The effective Telegram config for one user, or None when no
+    credentials exist (neither their DB row nor env provides both a token
+    and a chat id). ``user_id=None`` uses the ownerless row — the path for
+    ownerless monitors, where only the env fallback can provide creds."""
+    row = get_settings_row(db, user_id)
     token, chat_id = resolve_telegram_credentials(row)
     if not token or not chat_id:
         return None
@@ -150,8 +155,10 @@ async def notify_new_alert(
     client_factory: Callable[[], httpx.AsyncClient] | None = None,
 ) -> bool:
     """Send the alert notification if enabled and severe enough.
-    Returns True only when a message was actually delivered."""
-    config = get_effective_telegram_config(db)
+    Uses the MONITOR OWNER's Telegram settings (env fallback when the
+    owner has none configured). Returns True only when a message was
+    actually delivered."""
+    config = get_effective_telegram_config(db, user_id=monitor.user_id)
     if config is None or not config.enabled:
         return False
     if not severity_meets_minimum(alert.severity, config.min_severity):
@@ -169,8 +176,10 @@ async def notify_recovery(
     client_factory: Callable[[], httpx.AsyncClient] | None = None,
 ) -> bool:
     """Send a recovery message if notifications are enabled.
-    Returns True only when a message was actually delivered."""
-    config = get_effective_telegram_config(db)
+    Uses the MONITOR OWNER's Telegram settings (env fallback when the
+    owner has none configured). Returns True only when a message was
+    actually delivered."""
+    config = get_effective_telegram_config(db, user_id=monitor.user_id)
     if config is None or not config.enabled:
         return False
     return await send_telegram_message(
@@ -183,13 +192,16 @@ async def notify_recovery(
 async def send_test_notification(
     db: Session,
     client_factory: Callable[[], httpx.AsyncClient] | None = None,
+    *,
+    user_id: int | None = None,
 ) -> tuple[bool, str]:
-    """Send the test message. Deliberately ignores the enabled toggle —
+    """Send the test message with the CURRENT USER's Telegram config.
+    Deliberately ignores the enabled toggle —
     the point of the test button is to verify credentials before enabling.
 
     Returns ``(success, detail)``; never raises.
     """
-    config = get_effective_telegram_config(db)
+    config = get_effective_telegram_config(db, user_id=user_id)
     if config is None:
         return False, "Telegram not configured"
     sent = await send_telegram_message(config, TEST_MESSAGE, client_factory)

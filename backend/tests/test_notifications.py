@@ -23,8 +23,18 @@ FAKE_CHAT_ID = "FAKE_CHAT_ID"
 
 
 def _configure_telegram(db, *, enabled=True, min_severity="high"):
-    """Persist Telegram credentials in the settings row."""
-    row = get_or_create_settings(db)
+    """Persist Telegram credentials in the settings row.
+
+    run_check notifies with the MONITOR owner's config, so the row must
+    belong to the test user whenever one exists (every test using
+    make_monitor has one via the client fixture). The two service-level
+    send_test_notification tests have no user, so they use the ownerless
+    row — which is what send_test_notification(db) reads by default.
+    """
+    from app.models.user import User
+
+    user = db.query(User).first()
+    row = get_or_create_settings(db, user_id=user.id if user else None)
     row.telegram_bot_token = FAKE_TOKEN
     row.telegram_chat_id = FAKE_CHAT_ID
     row.telegram_enabled = enabled
@@ -289,7 +299,7 @@ def test_test_notification_route_returns_service_result(client, db, monkeypatch)
     the service-level tests above)."""
     import app.api.routes.settings as settings_route
 
-    async def _fake_send(db_session, client_factory=None):  # noqa: ARG001
+    async def _fake_send(db_session, client_factory=None, user_id=None):  # noqa: ARG001
         return True, "Test notification sent"
 
     monkeypatch.setattr(settings_route, "send_test_notification", _fake_send)

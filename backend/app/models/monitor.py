@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -14,12 +14,20 @@ if TYPE_CHECKING:
     from app.models.alert import Alert
     from app.models.anomaly import Anomaly
     from app.models.monitoring_record import MonitoringRecord
+    from app.models.user import User
 
 
 class Monitor(Base):
     __tablename__ = "monitors"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Owning user (multi-user isolation). NULL = ownerless: a monitor
+    # created before v4, or one whose owner was deleted (SET NULL keeps
+    # the monitor and its history). The admin bootstrap claims ownerless
+    # monitors; the scheduler checks them like any other.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     method: Mapped[str] = mapped_column(String(10), nullable=False, default="GET")
@@ -56,6 +64,7 @@ class Monitor(Base):
     records: Mapped[list["MonitoringRecord"]] = relationship(
         "MonitoringRecord", back_populates="monitor", cascade="all, delete-orphan", passive_deletes=True
     )
+    owner: Mapped["User | None"] = relationship("User", back_populates="monitors")
     anomalies: Mapped[list["Anomaly"]] = relationship(
         "Anomaly", back_populates="monitor", cascade="all, delete-orphan", passive_deletes=True
     )

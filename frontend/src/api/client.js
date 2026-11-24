@@ -11,6 +11,34 @@ const api = axios.create({
   timeout: 60000,
 })
 
+/** localStorage key for the JWT access token. */
+export const TOKEN_KEY = 'pulsewatch_token'
+
+// Attach the JWT to every request when one is stored.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+// An expired/invalid token anywhere means the session is dead: clear it
+// and send the user to /login. Guarded so we never redirect-loop while
+// already on an auth page (a failed login attempt is a 401 too, and the
+// form needs to show that error instead of navigating away).
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      localStorage.removeItem(TOKEN_KEY)
+      const path = window.location.pathname
+      if (path !== '/login' && path !== '/register') {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 /** Extract a human-readable message from an axios error. */
 export function apiErrorMessage(err, fallback = 'Something went wrong') {
   if (!err) return fallback

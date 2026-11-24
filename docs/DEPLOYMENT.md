@@ -5,9 +5,10 @@
 > auto-configured for `*.tidbcloud.com` hosts (app + Alembic),
 > the Dockerfile listens on Render's `$PORT`, a Render Blueprint
 > (`render.yaml`) and a Vercel SPA config (`frontend/vercel.json`)
-> are included. The steps below have **not** been performed end to
-> end yet — treat the first deployment as a verification run and
-> update this guide with anything that differs.
+> are included, and the v4 auth migration (`0003_v4_auth`) runs
+> automatically with the rest. The steps below have **not** been
+> performed end to end yet — treat the first deployment as a
+> verification run and update this guide with anything that differs.
 
 ## Overview
 
@@ -78,14 +79,26 @@ The repo ships a Render Blueprint (`render.yaml`).
 
 1. Push this repo to GitHub.
 2. In Render (https://render.com/), **New → Blueprint**, connect the
-   repo, and apply. Render prompts for the two values it cannot fill
-   in: `DATABASE_URL` (from §1) and `FRONTEND_URL` (your Vercel URL
-   from §3 — use a placeholder if the frontend is not deployed yet
-   and update it afterwards; Render restarts on env changes).
+   repo, and apply. Render prompts for the three values it cannot fill
+   in: `DATABASE_URL` (from §1), `SECRET_KEY` (the JWT signing key —
+   generate one with
+   `python -c "import secrets; print(secrets.token_hex(32))"`), and
+   `FRONTEND_URL` (your Vercel URL from §3 — use a placeholder if the
+   frontend is not deployed yet and update it afterwards; Render
+   restarts on env changes).
 3. Deploy. On first start the container runs `alembic upgrade head`,
-   which creates the five tables and applies the `0002_v3_upgrades`
-   migration (Telegram settings, consecutive-failure counters, and
-   SSL expiry columns) — no extra step is needed.
+   which creates the six tables and applies the migrations through
+   `0003_v4_auth` (users table + per-user ownership) — no extra step
+   is needed.
+4. **Upgrading a pre-v4 deployment?** If the database already has
+   monitors created before auth existed, they are ownerless and
+   invisible to every account until claimed. After the deploy, add
+   `ADMIN_EMAIL` and `ADMIN_PASSWORD` in the Render Dashboard
+   (Environment tab — they are **not** in `render.yaml`, so add them
+   by hand), then restart the service: on the next boot the app
+   creates that admin account if it does not exist yet and assigns
+   all ownerless monitors — plus one ownerless settings row — to it.
+   Log in with those credentials to see your existing monitors.
 
 ### Option B — Manual Web Service
 
@@ -106,6 +119,8 @@ The repo ships a Render Blueprint (`render.yaml`).
    | Variable | Value |
    |---|---|
    | `DATABASE_URL` | `mysql+pymysql://<user>:<pass>@<host>:<port>/pulsewatch` (from step 1) |
+   | `SECRET_KEY` | **Required.** JWT signing key — generate with `python -c "import secrets; print(secrets.token_hex(32))"`. The app refuses to start in production without a real value. |
+   | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | (optional) Only needed when upgrading a pre-v4 deployment: on boot, the app creates this admin account and assigns all ownerless monitors + one ownerless settings row to it. Omit for a fresh deployment. |
    | `FRONTEND_URL` | Your Vercel URL, e.g. `https://pulsewatchai.vercel.app` (comma-separated if several; a trailing `/` is tolerated) |
    | `APP_ENV` | `production` |
    | `LOG_LEVEL` | `INFO` |
@@ -118,9 +133,9 @@ The repo ships a Render Blueprint (`render.yaml`).
    | `PULSEWATCH_TESTING` | `0` |
 
 5. Deploy. On first start the container runs `alembic upgrade head`,
-   which creates the five tables and applies the `0002_v3_upgrades`
-   migration (Telegram settings, consecutive-failure counters, and
-   SSL expiry columns) — no extra step is needed.
+   which creates the six tables and applies the migrations through
+   `0003_v4_auth` (users table + per-user ownership) — no extra step
+   is needed.
 6. Verify: `https://<your-service>.onrender.com/health` should return
    `{"status": "ok", "db": "ok", "scheduler": "running"}` and
    `https://<your-service>.onrender.com/docs` should show the API docs.
@@ -167,7 +182,8 @@ The repo ships a Render Blueprint (`render.yaml`).
 ## 4. Post-deployment checks
 
 1. `GET /health` on the Render URL → `db: ok`, `scheduler: running`.
-2. Open the Vercel site → Dashboard loads (empty state is normal).
+2. Open the Vercel site → register an account (registration is open)
+   and log in; the Dashboard loads (empty state is normal).
 3. Add the "JSONPlaceholder Posts" monitor from
    `sample-data/sample-monitors.json`, click **Check Now**, and confirm
    a record appears and the dashboard counts update.
@@ -185,8 +201,9 @@ The repo ships a Render Blueprint (`render.yaml`).
   automatically.
 - **Breaking schema changes:** create a new Alembic revision
   (`alembic revision --autogenerate -m "..."`) and commit it; the next
-  backend deploy applies it. Never edit the existing `0001_initial` or
-  `0002_v3_upgrades` migration after it has run against a real database.
+  backend deploy applies it. Never edit the existing `0001_initial`,
+  `0002_v3_upgrades`, or `0003_v4_auth` migration after it has run
+  against a real database.
 - **`CREATE command denied ... for table 'alembic_version'` (seen
   24 Nov 2026):** the `DATABASE_URL` user lacks CREATE on the
   database — auth, TLS and the connection itself are all fine.
@@ -202,7 +219,12 @@ The repo ships a Render Blueprint (`render.yaml`).
 - `ALLOW_LOCAL_URLS` must stay `false`.
 - Keep `GEMINI_API_KEY` in Render's environment variables, never in
   the repo.
-- The API currently has **no authentication** — anyone who finds the
-  Render URL can use it. Until auth is added, treat the deployment
-  URL as semi-private and do not publish it.
+- **Authentication is on, and registration is open.** Anyone who finds
+  the frontend URL can create an account and use the app (each account
+  sees only its own data). That is the intended v4 behaviour — but be
+  aware there is no email verification or login rate limiting yet, so
+  do not publish the URL more widely than you intend until those land.
+- `SECRET_KEY` must be a strong random value in production (Render
+  prompts for it with the Blueprint); the app refuses to start with
+  the dev default. Never reuse it across projects, and never commit it.
 - `FRONTEND_URL` should list only your real frontend origin(s).

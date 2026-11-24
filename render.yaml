@@ -7,9 +7,11 @@
 #   FRONTEND_URL — the Vercel frontend URL. Deploy the frontend first
 #                  if you know the URL, or set a placeholder and update
 #                  it after the Vercel deploy (Render restarts on change).
+#   SECRET_KEY — random signing key for JWTs (required in production).
+#                Generate one with: python -c "import secrets; print(secrets.token_hex(32))"
 # The Dockerfile runs `alembic upgrade head` on every start, so the
-# tables + v3 migration are created automatically. No persistent disk
-# is needed (MySQL holds all state).
+# tables + migrations (incl. 0003_v4_auth) are created automatically.
+# No persistent disk is needed (MySQL holds all state).
 services:
   - type: web
     name: pulsewatch-api
@@ -20,6 +22,10 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        # JWT signing key. Render prompts for it on first deploy; generate
+        # with: python -c "import secrets; print(secrets.token_hex(32))"
         sync: false
       - key: FRONTEND_URL
         sync: false
