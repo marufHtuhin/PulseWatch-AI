@@ -42,6 +42,7 @@ def _to_response(row: AppSettings) -> SettingsOut:
         # Configured = credentials available (DB or env). The token value
         # itself is never included in any response.
         telegram_configured=bool(token and chat_id),
+        telegram_chat_id=chat_id or "",
         retention_days=row.retention_days,
         alert_retention_days=row.alert_retention_days,
     )

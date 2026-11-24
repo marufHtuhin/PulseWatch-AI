@@ -330,6 +330,33 @@ def test_token_never_appears_in_any_settings_response(client, db):
     assert FAKE_TOKEN not in preview.text
 
 
+def test_chat_id_returned_and_survives_resave(client, db):
+    """Regression test: GET /api/settings must return telegram_chat_id.
+
+    Without it the Settings form reloads with an empty chat-id field, and
+    the next save would overwrite the stored chat id with "".
+    """
+    put = client.put(
+        "/api/settings",
+        json={
+            "telegram_bot_token": FAKE_TOKEN,
+            "telegram_chat_id": FAKE_CHAT_ID,
+            "telegram_enabled": True,
+        },
+    )
+    assert put.status_code == 200
+    assert put.json()["telegram_chat_id"] == FAKE_CHAT_ID
+
+    get = client.get("/api/settings")
+    assert get.json()["telegram_chat_id"] == FAKE_CHAT_ID
+
+    # Re-saving with the value the UI now holds must not wipe it.
+    resave = client.put("/api/settings", json={"telegram_chat_id": FAKE_CHAT_ID})
+    assert resave.status_code == 200
+    assert resave.json()["telegram_chat_id"] == FAKE_CHAT_ID
+    assert resave.json()["telegram_configured"] is True
+
+
 def test_masked_token_keeps_stored_value(client, db):
     client.put(
         "/api/settings",

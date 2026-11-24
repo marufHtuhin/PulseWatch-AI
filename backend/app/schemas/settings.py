@@ -19,6 +19,10 @@ class SettingsOut(BaseModel):
     # True when a bot token AND a chat id are available (DB or env).
     # The token itself is never returned in any response.
     telegram_configured: bool
+    # The effective chat id (DB value, env fallback). A chat id is a plain
+    # numeric identifier, not a secret, so returning it is safe — and the
+    # Settings UI needs it to keep the field filled after a save.
+    telegram_chat_id: str = ""
     retention_days: int
     alert_retention_days: int
 
