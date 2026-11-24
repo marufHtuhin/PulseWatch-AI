@@ -1,0 +1,37 @@
+# Render Blueprint — PulseWatch AI backend (free tier).
+#
+# Deploy: Render Dashboard → New → Blueprint → connect this repo.
+# Render prompts for the `sync: false` values on first deploy:
+#   DATABASE_URL — TiDB Cloud MySQL URL (see docs/DEPLOYMENT.md §1).
+#                  TLS is auto-configured for *.tidbcloud.com hosts.
+#   FRONTEND_URL — the Vercel frontend URL. Deploy the frontend first
+#                  if you know the URL, or set a placeholder and update
+#                  it after the Vercel deploy (Render restarts on change).
+# The Dockerfile runs `alembic upgrade head` on every start, so the
+# tables + v3 migration are created automatically. No persistent disk
+# is needed (MySQL holds all state).
+services:
+  - type: web
+    name: pulsewatch-api
+    env: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ALLOW_LOCAL_URLS
+        value: "false"
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: MAX_CONCURRENCY
+        value: "10"
+      - key: PULSEWATCH_TESTING
+        value: "0"

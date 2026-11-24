@@ -26,5 +26,7 @@ COPY alembic.ini ./
 
 EXPOSE 8000
 
-# Apply migrations, then serve. (Must match docker-compose.yml's command.)
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Apply migrations, then serve. (Must match docker-compose.yml's command,
+# except the port: Render injects $PORT at runtime and the service must
+# listen on it; locally it defaults to 8000.)
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

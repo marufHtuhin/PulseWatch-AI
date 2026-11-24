@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import settings  # noqa: E402
 from app.database.base import Base  # noqa: E402
+from app.database.connection import mysql_ssl_args  # noqa: E402
 from app import models  # noqa: E402,F401  (registers all models on Base.metadata)
 
 config = context.config
@@ -35,10 +36,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    # Same TLS connect args as the app engine: without them, migrations
+    # against TiDB Cloud would fail (TiDB refuses non-TLS connections).
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=mysql_ssl_args(settings.DATABASE_URL),
     )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)

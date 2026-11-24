@@ -1,12 +1,13 @@
 # Deployment Guide — PulseWatch AI
 
-> **Status: not yet deployed.** This guide describes how to deploy
-> PulseWatch AI to Render (backend + MySQL) and Vercel (frontend). The
-> steps have been written from the project's configuration
-> (`docker-compose.yml`, `backend/Dockerfile`, `frontend/vite.config.js`,
-> `backend/.env.example`) but have **not** been performed end to end
-> yet. Treat the first deployment as a verification run and update
-> this guide with anything that differs.
+> **Status: deploy-ready, not yet deployed.** The deploy blockers
+> found during prep are fixed in this tree: TiDB TLS is
+> auto-configured for `*.tidbcloud.com` hosts (app + Alembic),
+> the Dockerfile listens on Render's `$PORT`, a Render Blueprint
+> (`render.yaml`) and a Vercel SPA config (`frontend/vercel.json`)
+> are included. The steps below have **not** been performed end to
+> end yet — treat the first deployment as a verification run and
+> update this guide with anything that differs.
 
 ## Overview
 
@@ -28,16 +29,17 @@ string of the form
 ### Option A — TiDB Cloud (recommended free option)
 
 1. Create a free account at https://tidbcloud.com/ and create a
-   **Serverless** cluster (free tier).
+   **Serverless** cluster (free tier). If you already have a TiDB
+   account (e.g. for another project), you can reuse the same cluster
+   — just create a second database named `pulsewatch` in it.
 2. Create a database named `pulsewatch` and a SQL user, and note the
    host, port (4000), username, and password.
-3. TiDB Serverless **requires TLS**. The backend does **not**
-   auto-configure TLS, so on first deploy you must confirm the exact
-   connection parameters from TiDB's own docs (typically an `ssl_ca`
-   parameter pointing at a CA bundle in the container) and verify the
-   connection from the Render logs. If the plain connection string
-   fails with a TLS error, that is the expected first thing to fix —
-   it is not yet verified for this project.
+3. TiDB Serverless **requires TLS**. The backend auto-configures it:
+   any `*.tidbcloud.com` host gets verified TLS via the certifi CA
+   bundle (`app/database/connection.py: mysql_ssl_args`, also used by
+   Alembic migrations) — just paste the plain connection string, no
+   `ssl_ca` parameter needed. Idle pooled connections recycle after
+   300s because TiDB closes them after 5 minutes.
 4. URL-encode special characters in the password when building
    `DATABASE_URL` (e.g. `@` → `%40`).
 
@@ -54,6 +56,23 @@ string of the form
 
 ## 2. Backend — Render Web Service
 
+### Option A — Blueprint (recommended)
+
+The repo ships a Render Blueprint (`render.yaml`).
+
+1. Push this repo to GitHub.
+2. In Render (https://render.com/), **New → Blueprint**, connect the
+   repo, and apply. Render prompts for the two values it cannot fill
+   in: `DATABASE_URL` (from §1) and `FRONTEND_URL` (your Vercel URL
+   from §3 — use a placeholder if the frontend is not deployed yet
+   and update it afterwards; Render restarts on env changes).
+3. Deploy. On first start the container runs `alembic upgrade head`,
+   which creates the five tables and applies the `0002_v3_upgrades`
+   migration (Telegram settings, consecutive-failure counters, and
+   SSL expiry columns) — no extra step is needed.
+
+### Option B — Manual Web Service
+
 1. Push this repo to GitHub.
 2. In Render (https://render.com/), create a **Web Service** from the
    repo. Render detects the `Dockerfile` in `backend/` — set the
@@ -62,8 +81,10 @@ string of the form
 3. **Build Command:** leave default for Docker (Render builds the image
    from the Dockerfile). **Start Command:** the Dockerfile's `CMD`
    already runs `alembic upgrade head && uvicorn app.main:app
-   --host 0.0.0.0 --port 8000`; if Render asks for a start command,
-   use exactly that.
+   --host 0.0.0.0 --port ${PORT:-8000}`; if Render asks for a start
+   command, use exactly that. (Render injects `$PORT` at runtime and
+   the service must listen on it — the hardcoded 8000 from earlier
+   versions would fail health checks.)
 4. Set the environment variables (Render Dashboard → Environment):
 
    | Variable | Value |
@@ -118,6 +139,8 @@ string of the form
    proxies `/api` to localhost, so local development needs no
    variable.)
 5. Deploy. The site will be live at `https://<project>.vercel.app`.
+   SPA routing (refreshing on `/monitors/1`, deep links) works out of
+   the box: `frontend/vercel.json` rewrites all paths to `index.html`.
 6. **CORS:** make sure the backend's `FRONTEND_URL` (step 2) matches
    this exact Vercel URL, otherwise the browser will block API calls.
    After changing `FRONTEND_URL` on Render, redeploy the backend (or

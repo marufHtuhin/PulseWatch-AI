@@ -319,7 +319,7 @@ pulsewatch-ai/
 │   ├── .env.example
 │   ├── alembic.ini / alembic/ # Migrations (0001_initial, 0002_v3_upgrades)
 │   ├── pytest.ini
-│   ├── tests/                 # pytest suite (273 tests)
+│   ├── tests/                 # pytest suite (280 tests)
 │   └── app/
 │       ├── main.py            # FastAPI app + lifespan (scheduler start)
 │       ├── api/routes/        # health, monitors, monitoring, alerts,
@@ -508,7 +508,7 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**273 tests, all passing** (last run: 24 Nov 2026), covering:
+**280 tests, all passing** (last run: 24 Nov 2026), covering:
 
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
@@ -615,7 +615,7 @@ Test output is written to `backend/logs/pytest.log`.
 - Uptime history charts per monitor (30-day view) and status pages.
 - Distributed scheduler locking (or a single-worker deployment note)
   for multi-replica setups.
-- Frontend tests (Vitest + Testing Library) — the backend has 273
+- Frontend tests (Vitest + Testing Library) — the backend has 280
   tests; the frontend currently has none.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.
