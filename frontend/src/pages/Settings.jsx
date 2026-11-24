@@ -66,6 +66,19 @@ export function Settings() {
   const [passwordError, setPasswordError] = useState(null)
   const [changingPassword, setChangingPassword] = useState(false)
 
+  // Delayed skeleton: only show the loading placeholder if the fetch takes
+  // longer than ~250ms, so fast loads render straight into content with no
+  // flash, while genuinely slow loads still show feedback.
+  const [showSkeleton, setShowSkeleton] = useState(false)
+  useEffect(() => {
+    if (!settings.loading || settings.data) {
+      setShowSkeleton(false)
+      return
+    }
+    const t = setTimeout(() => setShowSkeleton(true), 250)
+    return () => clearTimeout(t)
+  }, [settings.loading, settings.data])
+
   useEffect(() => {
     if (settings.data && !form) {
       setForm(settingsToForm(settings.data))
@@ -216,7 +229,7 @@ export function Settings() {
     return (
       <div>
         <PageHeader title="Settings" description="Defaults applied to new monitors" />
-        <LoadingSkeleton rows={5} />
+        {showSkeleton && <LoadingSkeleton rows={5} />}
       </div>
     )
   }

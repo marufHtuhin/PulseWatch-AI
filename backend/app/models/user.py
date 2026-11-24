@@ -29,6 +29,11 @@ class User(Base):
     # plaintext password, and never returned by any API response.
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Admins can manage other users and see all monitors via the
+    # /api/admin/* endpoints (see app.core.auth.require_admin). Only the
+    # startup bootstrap sets this (ADMIN_EMAIL/ADMIN_PASSWORD); open
+    # registration never creates an admin.
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Set whenever the password is changed or reset; JWTs issued before
     # this instant are rejected (see app.core.auth). NULL for users who
     # never changed their password — their pre-v4.1 tokens stay valid.

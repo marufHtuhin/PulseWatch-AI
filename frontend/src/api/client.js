@@ -150,4 +150,20 @@ export const getCleanupPreview = () =>
 export const cleanupHistory = () =>
   api.post('/settings/cleanup').then((r) => r.data)
 
+// ---- Admin (admin-only endpoints under /api/admin) ----
+export const getAdminStats = () => api.get('/admin/stats').then((r) => r.data)
+
+export const listAdminUsers = (params = {}) =>
+  api.get('/admin/users', { params }).then((r) => r.data)
+
+export const getAdminUser = (id) => api.get(`/admin/users/${id}`).then((r) => r.data)
+
+export const updateAdminUser = (id, payload) =>
+  api.patch(`/admin/users/${id}`, payload).then((r) => r.data)
+
+export const deleteAdminUser = (id) => api.delete(`/admin/users/${id}`)
+
+export const listAdminMonitors = (params = {}) =>
+  api.get('/admin/monitors', { params }).then((r) => r.data)
+
 export default api

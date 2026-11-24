@@ -9,6 +9,8 @@ from app.schemas.common import APIModel, UtcDateTime
 class UserOut(APIModel):
     id: int
     email: str
+    # The frontend shows the Admin nav link only when this is true.
+    is_admin: bool = False
     created_at: UtcDateTime
 
 

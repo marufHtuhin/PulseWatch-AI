@@ -37,7 +37,8 @@ endpoints (`register`, `login`, `forgot-password`,
   `{ "detail": "Invalid email or password" }` — one message for every
   failure, so the endpoint cannot enumerate users.
 - `GET /api/auth/me` — returns `{ "id": 1, "email": "...",
-  "created_at": "..." }` for the token's user.
+  "is_admin": false, "created_at": "..." }` for the token's user.
+  `is_admin` is `true` only for the admin account (see Admin).
 - `POST /api/auth/change-password` — requires a Bearer token. Body
   `{ "current_password": "...", "new_password": "..." }` (new
   password 8–128 chars). Returns **200** +
@@ -92,6 +93,67 @@ endpoints (`register`, `login`, `forgot-password`,
   another user's object by id returns **404**, not 403 (no existence
   leak). `POST /api/monitoring/batch` silently skips ids the caller
   does not own — they simply do not appear in `results`.
+
+## Admin
+
+The admin is the `ADMIN_EMAIL` account: the startup bootstrap promotes
+an existing account with that email to admin (`is_admin: true`) on the
+first v4.2 boot, or creates the account as an admin when none exists.
+`is_admin` is set **only** by the bootstrap — no endpoint grants or
+revokes admin, and registration always creates a normal user
+(`is_admin: false`).
+
+Every `/api/admin/*` endpoint requires a Bearer token for an **admin**
+user. No token, or an invalid/expired token → **401** (same messages
+as Authentication above). A valid token for a non-admin user → **403**
+`{ "detail": "Admin access required" }`.
+
+- `GET /api/admin/stats` — platform-wide counts. Returns **200** +
+  `{ "total_users": N, "total_monitors": N, "active_monitors": N,
+  "total_alerts": N, "active_alerts": N }` (`active_*` = currently
+  active monitors / alerts with status `active`).
+- `GET /api/admin/users` — every account, oldest first, as a paginated
+  list (see Conventions). Each item is
+  `{ "id": 1, "email": "...", "is_active": true, "is_admin": false,
+  "created_at": "...", "monitor_count": N, "alert_count": N }`.
+  Query params: `skip` / `limit` (defaults 0 / 20), `q` (optional
+  email substring search). The `page` / `page_size` fields in the
+  response envelope are derived from `skip` / `limit`.
+- `GET /api/admin/users/{id}` — one user plus their monitors. Returns
+  **200** +
+  `{ "id": 1, "email": "...", "is_active": true, "is_admin": false,
+  "created_at": "...", "monitor_count": N, "alert_count": N,
+  "active_alert_count": N, "monitors": [ { "id": 1, "name": "...",
+  "url": "...", "is_active": true, "status": "up" } ] }` (`status` is
+  the monitor's `last_status`: `up | down | unknown`). Unknown user
+  → **404** `{ "detail": "User {id} not found" }`.
+- `PATCH /api/admin/users/{id}` — activate/deactivate only. Body
+  `{ "is_active": false }`. Returns **200** + the updated user row
+  (same shape as one `GET /api/admin/users` item). Deactivating
+  blocks the account's login immediately and rejects its existing
+  tokens; reactivating restores access. Deactivating yourself →
+  **400** `{ "detail": "Admins cannot deactivate themselves" }`;
+  changing another admin's status → **400**
+  `{ "detail": "Admins cannot change another admin's status" }`.
+  Unknown user → **404**. There is no way to change another user's
+  password or admin flag here.
+- `DELETE /api/admin/users/{id}` — hard-deletes the account and **all**
+  of its data: monitors, check records, anomalies, alerts,
+  password-reset tokens, and settings. Returns **204** (no body).
+  Deleting yourself → **400**
+  `{ "detail": "Admins cannot delete themselves" }`; deleting another
+  admin → **400**
+  `{ "detail": "Admins cannot delete another admin" }`. Unknown user
+  → **404**.
+- `GET /api/admin/monitors` — read-only list of **every** user's
+  monitors, newest first, as a paginated list (see Conventions). Each
+  item is `{ "id": 1, "name": "...", "url": "...", "is_active": true,
+  "status": "up", "user_id": 1, "owner_email": "..." }` (`status` is
+  the monitor's `last_status`). Query params: `skip` / `limit`
+  (defaults 0 / 20), `user_id` (optional — only that user's
+  monitors). The `page` / `page_size` fields in the response envelope
+  are derived from `skip` / `limit`. Ownerless (pre-v4) monitors have
+  `user_id` and `owner_email` both `null`.
 
 ## Health
 - `GET /` -> `{ "status": "ok", "project": "PulseWatch AI", "version": "1.0.0" }`

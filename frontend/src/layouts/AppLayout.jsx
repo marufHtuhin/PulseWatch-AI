@@ -90,9 +90,6 @@ export function AppLayout() {
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-100 text-xs font-semibold uppercase text-zinc-700">
                     {user.email?.charAt(0) || '?'}
                   </span>
-                  <span className="hidden max-w-40 truncate sm:block" title={user.email}>
-                    {user.email}
-                  </span>
                   <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {menuOpen && (
@@ -100,9 +97,14 @@ export function AppLayout() {
                     className="absolute right-0 top-full z-30 mt-1 w-60 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
                     role="menu"
                   >
-                    <p className="truncate border-b border-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900" title={user.email}>
-                      {user.email}
-                    </p>
+                    <div className="border-b border-zinc-100 px-3 py-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                        Signed in as
+                      </p>
+                      <p className="truncate text-sm font-medium text-zinc-900" title={user.email}>
+                        {user.email}
+                      </p>
+                    </div>
                     <Link
                       to="/settings"
                       onClick={() => setMenuOpen(false)}

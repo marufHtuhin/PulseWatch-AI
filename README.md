@@ -65,6 +65,10 @@ and the dashboard all work with zero configuration.
   objects return 404, never 403. Forgot-password via a 6-digit email
   OTP (Brevo), change password with other-session invalidation, and
   rate-limited auth endpoints.
+- **Admin panel** — the `ADMIN_EMAIL` account is the admin (see
+  [Admin](#admin)): platform stats, a user list with per-user
+  monitor/alert counts, activate/deactivate, hard-delete with full
+  cascade, and a read-only view of every user's monitors.
 
 ## Screenshots
 
@@ -328,17 +332,56 @@ approval step.
   ownerless settings row — to it. The bootstrap is idempotent and
   never breaks startup; it is skipped entirely under pytest. Once
   your data is claimed, the variables can stay set (later boots are
-  no-ops) or be removed.
+  no-ops) or be removed. Since v4.2 the bootstrap also makes that
+  account the admin — see [Admin](#admin).
+
+## Admin
+
+One account is the admin: the `ADMIN_EMAIL` account. On the first
+v4.2 boot the startup bootstrap **auto-promotes** the existing
+`ADMIN_EMAIL` account to admin (`is_admin = true`); if no account
+with that email exists yet, the bootstrap creates it as an admin.
+No new environment variables are needed for v4.2 — the existing
+`ADMIN_EMAIL` / `ADMIN_PASSWORD` pair is enough. The admin flag is
+set **only** by the bootstrap: no API endpoint grants or revokes
+admin, and registration always creates a normal user.
+`GET /api/auth/me` includes `is_admin` so the frontend knows whether
+to show the admin panel.
+
+The admin panel (frontend `/admin` route, backend `/api/admin/*`)
+offers:
+
+- **Platform stats** — total users, monitors, and alerts
+  (`GET /api/admin/stats`).
+- **User list** — every account with its monitor and alert counts,
+  plus a detail view showing that user's monitors
+  (`GET /api/admin/users`, `GET /api/admin/users/{id}`).
+- **Activate / deactivate** — `PATCH /api/admin/users/{id}`
+  (`{is_active: false}`) blocks the account's login immediately and
+  rejects its existing tokens; reactivating restores access.
+- **Delete** — `DELETE /api/admin/users/{id}` (204) hard-deletes the
+  account and **all** of its data: monitors, check records,
+  anomalies, alerts, password-reset tokens, and settings.
+- **All-monitors view** — a read-only list of every user's monitors
+  with the owner's email (`GET /api/admin/monitors`, filterable with
+  `?user_id=`).
+
+Safety rules, enforced by the API: every `/api/admin/*` endpoint
+requires an admin token (no token → 401, non-admin → 403); an admin
+**cannot deactivate or delete themselves** (400); an admin **cannot
+deactivate or delete another admin** (400); an unknown user id is
+404. Full shapes and error codes:
+[`API_CONTRACT.md`](API_CONTRACT.md) ("Admin").
 
 ## Database Schema
 
-Seven tables, identical on MySQL and SQLite (four dialect-agnostic Alembic
+Seven tables, identical on MySQL and SQLite (five dialect-agnostic Alembic
 migrations: `0001_initial`, `0002_v3_upgrades`, `0003_v4_auth`,
-`0004_v4_1_auth_ux`):
+`0004_v4_1_auth_ux`, `0005_v4_2_admin`):
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | Accounts (auth) | `id`, `email` (unique), `password_hash` (bcrypt), `password_changed_at` (set on change/reset — JWTs issued before it are rejected), `is_active`, `created_at` |
+| `users` | Accounts (auth) | `id`, `email` (unique), `password_hash` (bcrypt), `password_changed_at` (set on change/reset — JWTs issued before it are rejected), `is_active`, `is_admin` (v4.2 — set only by the startup bootstrap for the `ADMIN_EMAIL` account), `created_at` |
 | `password_reset_tokens` | One row per forgot-password request | `id`, `user_id` (FK → `users`, cascade), `otp_hash` (sha256 of the 6-digit code — the code itself is never stored), `expires_at` (10 min), `attempts` (locks at 5), `used`, `created_at` |
 | `monitors` | Watched endpoints | `id`, `user_id` (FK → `users`, owner; NULL = pre-v4 ownerless), `name`, `url`, `method`, `headers` (JSON, secrets stored verbatim — masked at the API boundary), `request_body`, `timeout_seconds`, `interval_seconds`, `expected_status_codes`, `expected_fields`, `check_zero_records`, `latency_threshold_ms`, `max_response_size_bytes`, `alert_after_failures`, `consecutive_failures`, `cert_expires_at`, `cert_checked_at`, `is_active`, `last_status`, `last_response_time_ms`, `last_status_code`, `last_checked_at` |
 | `monitoring_records` | One row per check (metadata only) | `id`, `monitor_id` (FK, cascade), `response_time_ms`, `status_code`, `response_size_bytes`, `records_returned`, `is_success`, `error_message`, `checked_at`, `content_type`, `is_valid_json` |
@@ -415,13 +458,14 @@ pulsewatch-ai/
 │   ├── requirements.txt
 │   ├── .env.example
 │   ├── alembic.ini / alembic/ # Migrations (0001_initial, 0002_v3_upgrades,
-│   │                           #   0003_v4_auth, 0004_v4_1_auth_ux)
+│   │                           #   0003_v4_auth, 0004_v4_1_auth_ux,
+│   │                           #   0005_v4_2_admin)
 │   ├── pytest.ini
-│   ├── tests/                 # pytest suite (329 tests)
+│   ├── tests/                 # pytest suite (343 tests)
 │   └── app/
 │       ├── main.py            # FastAPI app + lifespan (scheduler start)
 │       ├── api/routes/        # health, auth, monitors, monitoring, alerts,
-│       │                      #   dashboard, settings
+│       │                      #   dashboard, settings, admin
 │       ├── core/              # config, logging, security (SSRF + masking),
 │       │                      #   auth (bcrypt + JWT + admin bootstrap),
 │       │                      #   rate_limit (slowapi, auth endpoints)
@@ -612,7 +656,7 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**329 tests, all passing** (last run: 24 Nov 2026), covering:
+**343 tests, all passing** (last run: 24 Nov 2026), covering:
 
 - Auth: registration (201 + token, duplicate email 400, short password
   / invalid email 422), login (success, wrong password / unknown user
@@ -629,6 +673,15 @@ pytest tests/ -v
   all 400 with one generic message, unconfigured Brevo still
   returning 200), and the login rate limit (6th login in a minute
   → JSON 429)
+- Admin (v4.2): the bootstrap promoting an existing `ADMIN_EMAIL`
+  user to admin and creating a fresh admin account, `/me` including
+  `is_admin`, non-admin 403 on every `/api/admin/*` endpoint and
+  401 without a token, user list/detail with monitor/alert counts,
+  deactivate blocking login and existing tokens (reactivate
+  restoring access), the 400 rules against deactivating/deleting
+  self or another admin, delete cascading to monitors/alerts/
+  records, exact stats counts, and the all-monitors list with owner
+  email + `?user_id=` filter
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
 - All 11 anomaly rules individually (incl. severity tiers, the
@@ -754,7 +807,7 @@ on every push and pull request.
 - Uptime history charts per monitor (30-day view) and status pages.
 - Distributed scheduler locking (or a single-worker deployment note)
   for multi-replica setups.
-- Frontend tests (Vitest + Testing Library) — the backend has 329
+- Frontend tests (Vitest + Testing Library) — the backend has 343
   tests; the frontend currently has none.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.
