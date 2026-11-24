@@ -5,7 +5,7 @@ No secrets are ever hardcoded here.
 """
 from __future__ import annotations
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     DATABASE_URL: str = "sqlite:///./pulsewatch.db"
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     # Telegram notifications: env fallback for the credentials. A value
     # persisted in AppSettings (via the settings API) wins over env.
     TELEGRAM_BOT_TOKEN: str | None = None
@@ -39,9 +39,31 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PULSEWATCH_TESTING", "TESTING"),
     )
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, value: object) -> object:
+        """Accept a plain ``mysql://`` URL by rewriting it to
+        ``mysql+pymysql://``. TiDB Cloud's connection dialog shows a
+        plain ``mysql://`` URL; without the ``+pymysql`` driver
+        qualifier SQLAlchemy defaults to ``mysql+mysqldb`` and crashes
+        at import time with ``No module named 'MySQLdb'`` (pymysql is
+        the only MySQL driver this project ships). Also strips
+        copy-paste whitespace."""
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        if value.startswith("mysql://"):
+            value = "mysql+pymysql://" + value[len("mysql://"):]
+        return value
+
     @property
     def cors_origins(self) -> list[str]:
-        return [o.strip() for o in self.FRONTEND_URL.split(",") if o.strip()]
+        # Strip a trailing slash too: browsers send the origin without
+        # one, so "https://example.com/" pasted into FRONTEND_URL
+        # would otherwise never match and CORS would fail.
+        return [
+            o.strip().rstrip("/") for o in self.FRONTEND_URL.split(",") if o.strip()
+        ]
 
 
 settings = Settings()

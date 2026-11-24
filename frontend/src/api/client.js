@@ -1,10 +1,14 @@
 import axios from 'axios'
 
 // In dev, Vite proxies /api -> http://127.0.0.1:8000 (see vite.config.js).
-// In production builds, VITE_API_BASE_URL can point at the backend origin.
+// In production builds, VITE_API_BASE_URL must point at the backend
+// origin INCLUDING the /api prefix, e.g.
+// https://pulsewatch-api.onrender.com/api — all API routes live under /api.
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 30000,
+  // Render free tier can take ~30-60s to cold-start after idling, so
+  // the default 30s timeout would fail the first request after sleep.
+  timeout: 60000,
 })
 
 /** Extract a human-readable message from an axios error. */
@@ -25,9 +29,6 @@ export function apiErrorMessage(err, fallback = 'Something went wrong') {
 export function isNotFound(err) {
   return err?.response?.status === 404
 }
-
-// ---- Health ----
-export const getHealth = () => api.get('/health').then((r) => r.data)
 
 // ---- Monitors ----
 export const listMonitors = (params = {}) =>

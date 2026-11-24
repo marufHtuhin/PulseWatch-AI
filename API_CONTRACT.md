@@ -132,7 +132,7 @@ Alert object:
 - Dev-only override: env `ALLOW_LOCAL_URLS=true` permits loopback/private (never in production; log a warning at startup when enabled).
 
 ## Gemini AI (backend only)
-- Model from env `GEMINI_MODEL` (default `gemini-2.0-flash`). API key from `GEMINI_API_KEY` (optional; app works fully without it).
+- Model from env `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). API key from `GEMINI_API_KEY` (optional; app works fully without it).
 - Called ONLY when >=1 anomaly is detected for a check. Structured JSON output validated by Pydantic: `{title, severity, summary, possible_cause, recommended_action}`.
 - On any Gemini failure (no key, network, quota, invalid JSON): create a deterministic fallback alert from templates. Monitoring never fails because of AI.
 - Never send response bodies to Gemini — only metadata (name, method, status, timings, anomaly types, baseline).

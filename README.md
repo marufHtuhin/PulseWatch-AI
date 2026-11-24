@@ -85,7 +85,7 @@ Alerts:
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.x, Alembic, Pydantic v2 |
 | HTTP | httpx (async, with SSRF-safe redirect handling) |
 | Scheduler | APScheduler 3.x (AsyncIOScheduler) |
-| AI | Google Gemini (`gemini-2.0-flash` by default) — optional |
+| AI | Google Gemini (`gemini-3.5-flash-lite` by default) — optional |
 | Database | MySQL 8 (production) / SQLite (local dev & tests) |
 | Frontend | React 18, Vite 6, React Router 6, Tailwind CSS 3, Recharts, Axios |
 | Testing | pytest + pytest-asyncio + httpx MockTransport |
@@ -191,7 +191,7 @@ findings. Each rule is a separate function in
 - **Optional.** Without `GEMINI_API_KEY`, alerts use deterministic
   fallback templates — one per anomaly type — and everything works.
 - **Model** is configurable via `GEMINI_MODEL` (default
-  `gemini-2.0-flash`).
+  `gemini-3.5-flash-lite`).
 - **Called only when a new alert is created** (dedup bumps never call
   the AI), and only with **metadata**: monitor name/method/host, status
   code, timings, anomaly type, and baseline stats. Response bodies are
@@ -319,7 +319,7 @@ pulsewatch-ai/
 │   ├── .env.example
 │   ├── alembic.ini / alembic/ # Migrations (0001_initial, 0002_v3_upgrades)
 │   ├── pytest.ini
-│   ├── tests/                 # pytest suite (280 tests)
+│   ├── tests/                 # pytest suite (284 tests)
 │   └── app/
 │       ├── main.py            # FastAPI app + lifespan (scheduler start)
 │       ├── api/routes/        # health, monitors, monitoring, alerts,
@@ -454,7 +454,7 @@ All backend settings live in `backend/.env` (copy from
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./pulsewatch.db` | MySQL: `mysql+pymysql://user:pass@host:3306/pulsewatch` |
 | `GEMINI_API_KEY` | _(empty)_ | Optional. Without it, alerts use deterministic fallback templates. |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model for AI incident explanations. |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model for AI incident explanations. |
 | `TELEGRAM_BOT_TOKEN` | _(empty)_ | Optional fallback for Telegram notifications. A token saved in Settings wins over this. |
 | `TELEGRAM_CHAT_ID` | _(empty)_ | Optional fallback for Telegram notifications. A chat ID saved in Settings wins over this. |
 | `FRONTEND_URL` | `http://localhost:5173` | CORS origins, comma-separated. |
@@ -508,7 +508,7 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**280 tests, all passing** (last run: 24 Nov 2026), covering:
+**284 tests, all passing** (last run: 24 Nov 2026), covering:
 
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
@@ -615,7 +615,7 @@ Test output is written to `backend/logs/pytest.log`.
 - Uptime history charts per monitor (30-day view) and status pages.
 - Distributed scheduler locking (or a single-worker deployment note)
   for multi-replica setups.
-- Frontend tests (Vitest + Testing Library) — the backend has 280
+- Frontend tests (Vitest + Testing Library) — the backend has 284
   tests; the frontend currently has none.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.

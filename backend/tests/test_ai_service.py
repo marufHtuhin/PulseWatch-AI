@@ -22,7 +22,7 @@ from app.services.anomaly_service import AnomalyFinding
 from app.services.monitoring_service import run_check
 from tests.conftest import json_response_handler, mock_client_factory
 
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
 def _gemini_envelope(text: str) -> dict:

@@ -36,7 +36,7 @@ API docs: http://127.0.0.1:8000/docs — Health: http://127.0.0.1:8000/health
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./pulsewatch.db` | MySQL: `mysql+pymysql://user:pass@host:3306/pulsewatch` |
 | `GEMINI_API_KEY` | _(empty)_ | Optional. Without it, alerts use deterministic fallback templates. |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model for AI incident explanations. |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model for AI incident explanations. |
 | `FRONTEND_URL` | `http://localhost:5173` | CORS origins, comma-separated. |
 | `ALLOW_LOCAL_URLS` | `false` | Dev-only: permits checks against loopback/private IPs. Never in production. |
 | `MAX_CONCURRENCY` | `10` | Batch check concurrency cap. |

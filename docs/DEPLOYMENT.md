@@ -90,11 +90,11 @@ The repo ships a Render Blueprint (`render.yaml`).
    | Variable | Value |
    |---|---|
    | `DATABASE_URL` | `mysql+pymysql://<user>:<pass>@<host>:<port>/pulsewatch` (from step 1) |
-   | `FRONTEND_URL` | Your Vercel URL, e.g. `https://pulsewatch-ai.vercel.app` (comma-separated if several) |
+   | `FRONTEND_URL` | Your Vercel URL, e.g. `https://pulsewatchai.vercel.app` (comma-separated if several; a trailing `/` is tolerated) |
    | `APP_ENV` | `production` |
    | `LOG_LEVEL` | `INFO` |
    | `GEMINI_API_KEY` | (optional) your Gemini key, or leave unset for fallback templates |
-   | `GEMINI_MODEL` | `gemini-2.0-flash` |
+   | `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
    | `TELEGRAM_BOT_TOKEN` | (optional) fallback bot token for Telegram notifications; can also be set in the app's Settings UI, which takes precedence |
    | `TELEGRAM_CHAT_ID` | (optional) fallback chat ID for Telegram notifications; can also be set in the app's Settings UI, which takes precedence |
    | `ALLOW_LOCAL_URLS` | `false` (never `true` in production) |
@@ -131,13 +131,15 @@ The repo ships a Render Blueprint (`render.yaml`).
 
    | Variable | Value |
    |---|---|
-   | `VITE_API_BASE_URL` | `https://<your-service>.onrender.com` |
+   | `VITE_API_BASE_URL` | `https://<your-service>.onrender.com/api` |
 
-   Without it, the production build calls the relative `/api` path,
-   which only works when the frontend is served from the same origin
-   as the backend — not the case on Vercel. (The Vite dev server
-   proxies `/api` to localhost, so local development needs no
-   variable.)
+   The trailing `/api` is REQUIRED: all backend routes live under
+   `/api/*` (e.g. `/api/monitors`). Without it, every frontend API
+   call 404s. Without the variable at all, the production build
+   calls the relative `/api` path, which only works when the
+   frontend is served from the same origin as the backend — not the
+   case on Vercel. (The Vite dev server proxies `/api` to localhost,
+   so local development needs no variable.)
 5. Deploy. The site will be live at `https://<project>.vercel.app`.
    SPA routing (refreshing on `/monitors/1`, deep links) works out of
    the box: `frontend/vercel.json` rewrites all paths to `index.html`.

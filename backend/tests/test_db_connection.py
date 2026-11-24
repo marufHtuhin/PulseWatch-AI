@@ -52,3 +52,45 @@ def test_plain_mysql_engine_has_no_pool_recycle():
         assert engine.pool._recycle == -1
     finally:
         engine.dispose()
+
+
+# --- DATABASE_URL scheme normalization (config) ----------------------------
+
+def test_plain_mysql_scheme_rewritten_to_pymysql():
+    """Regression test: TiDB Cloud shows a plain mysql:// URL; without
+    the +pymysql qualifier SQLAlchemy defaults to mysqldb and crashes
+    with `No module named 'MySQLdb'` (first Render deploy failure)."""
+    from app.core.config import Settings
+
+    s = Settings(DATABASE_URL="mysql://u:p@cluster-xyz.tidbcloud.com:4000/db")
+    assert s.DATABASE_URL == "mysql+pymysql://u:p@cluster-xyz.tidbcloud.com:4000/db"
+
+
+def test_pymysql_scheme_left_untouched():
+    from app.core.config import Settings
+
+    url = "mysql+pymysql://u:p@host:3306/db"
+    assert Settings(DATABASE_URL=url).DATABASE_URL == url
+
+
+def test_sqlite_url_left_untouched_and_whitespace_stripped():
+    from app.core.config import Settings
+
+    assert (
+        Settings(DATABASE_URL="  sqlite:///./x.db\n").DATABASE_URL
+        == "sqlite:///./x.db"
+    )
+
+
+def test_cors_origins_strip_trailing_slash():
+    """Browsers send the origin without a trailing slash, so a pasted
+    FRONTEND_URL ending in '/' must still match."""
+    from app.core.config import Settings
+
+    s = Settings(
+        FRONTEND_URL="https://pulsewatchai.vercel.app/, http://localhost:5173/"
+    )
+    assert s.cors_origins == [
+        "https://pulsewatchai.vercel.app",
+        "http://localhost:5173",
+    ]
