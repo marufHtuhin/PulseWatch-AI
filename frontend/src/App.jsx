@@ -11,6 +11,8 @@ import { AlertDetail } from './pages/AlertDetail'
 import { Settings } from './pages/Settings'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
+import { ForgotPassword } from './pages/ForgotPassword'
+import { ResetPassword } from './pages/ResetPassword'
 import { NotFound } from './pages/NotFound'
 
 /**
@@ -35,6 +37,8 @@ const router = createBrowserRouter([
   // Public auth pages — no app layout, /login is the entry point.
   { path: '/login', element: <Login /> },
   { path: '/register', element: <Register /> },
+  { path: '/forgot-password', element: <ForgotPassword /> },
+  { path: '/reset-password', element: <ResetPassword /> },
   {
     element: <ProtectedRoute />,
     children: [

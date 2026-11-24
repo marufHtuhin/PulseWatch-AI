@@ -13,6 +13,7 @@ import pytest
 
 from app.core.auth import bootstrap_admin, create_access_token
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.models.monitor import Monitor
 from app.models.settings import AppSettings
 from app.models.user import User
@@ -23,9 +24,11 @@ from tests.conftest import (
     mock_client_factory,
     monitor_payload,
     register_user,
+    wait_for_next_second,
 )
 
 PASSWORD = "correct-horse-123"
+NEW_PASSWORD = "brand-new-horse-456"
 
 
 # --- registration -----------------------------------------------------------
@@ -57,7 +60,7 @@ def test_register_success_returns_201_with_user_and_working_token(anon_client):
 
 
 def test_register_duplicate_email_is_400(anon_client):
-    register_user(anon_client, email="dup@example.com")
+    register_user(anon_client, email="dup@example.com", password=PASSWORD)
     response = anon_client.post(
         "/api/auth/register",
         json={"email": "dup@example.com", "password": PASSWORD},
@@ -141,7 +144,7 @@ def test_me_with_invalid_token_is_401(anon_client):
 
 
 def test_me_with_expired_token_is_401(anon_client):
-    user = register_user(anon_client, email="expired@example.com")
+    user = register_user(anon_client, email="expired@example.com", password=PASSWORD)
     expired = create_access_token(user["id"], expires_delta=timedelta(seconds=-1))
     response = anon_client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {expired}"}
@@ -151,7 +154,7 @@ def test_me_with_expired_token_is_401(anon_client):
 
 
 def test_me_with_deactivated_user_is_401(anon_client, db):
-    user = register_user(anon_client, email="gone@example.com")
+    user = register_user(anon_client, email="gone@example.com", password=PASSWORD)
     db.query(User).filter(User.id == user["id"]).update(
         {User.is_active: False}, synchronize_session=False
     )
@@ -198,7 +201,7 @@ def test_public_endpoints_stay_public(anon_client, path):
 
 def test_cross_user_monitor_access_is_404(client, anon_client, create_monitor_via_api):
     monitor = create_monitor_via_api(name="A's monitor")
-    user_b = register_user(anon_client, email="b@example.com")
+    user_b = register_user(anon_client, email="b@example.com", password=PASSWORD)
 
     assert client.get(f"/api/monitors/{monitor['id']}").status_code == 200
     assert (
@@ -229,7 +232,7 @@ def test_cross_user_monitor_list_excludes_others(
     client, anon_client, create_monitor_via_api
 ):
     create_monitor_via_api(name="A's monitor")
-    user_b = register_user(anon_client, email="b@example.com")
+    user_b = register_user(anon_client, email="b@example.com", password=PASSWORD)
 
     mine = client.get("/api/monitors").json()
     assert mine["total"] == 1
@@ -246,7 +249,7 @@ async def test_cross_user_alerts_excluded(client, anon_client, db, make_monitor)
     assert len(outcome.alerts_created) == 1
     alert_id = outcome.alerts_created[0]  # alerts_created holds alert ids
 
-    user_b = register_user(anon_client, email="b@example.com")
+    user_b = register_user(anon_client, email="b@example.com", password=PASSWORD)
 
     mine = client.get("/api/alerts").json()
     assert mine["total"] == 1
@@ -266,7 +269,7 @@ def test_cross_user_batch_check_skips_foreign_monitors(
     client, anon_client, create_monitor_via_api
 ):
     monitor = create_monitor_via_api(name="A's monitor")
-    user_b = register_user(anon_client, email="b@example.com")
+    user_b = register_user(anon_client, email="b@example.com", password=PASSWORD)
 
     response = anon_client.post(
         "/api/monitoring/batch",
@@ -282,7 +285,7 @@ def test_cross_user_batch_check_skips_foreign_monitors(
 
 
 def test_settings_isolated_per_user(client, anon_client):
-    user_b = register_user(anon_client, email="b@example.com")
+    user_b = register_user(anon_client, email="b@example.com", password=PASSWORD)
 
     put = client.put("/api/settings", json={"retention_days": 30})
     assert put.status_code == 200
@@ -340,3 +343,124 @@ def test_admin_bootstrap_does_nothing_without_admin_env(
     assert db.get(Monitor, orphan.id).user_id is None
     # Only the fixture's test user exists — no admin was created.
     assert db.query(User).count() == 1
+
+
+# --- change-password (v4.1) -------------------------------------------------
+
+def test_change_password_success_returns_fresh_token_and_kills_old_sessions(
+    anon_client,
+):
+    user = register_user(anon_client, email="changer@example.com", password=PASSWORD)
+    old_headers = user["headers"]
+    # The old token must predate the change by a whole second, or the
+    # second-precision iat check cannot tell them apart.
+    wait_for_next_second()
+
+    response = anon_client.post(
+        "/api/auth/change-password",
+        json={"current_password": PASSWORD, "new_password": NEW_PASSWORD},
+        headers=old_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["token_type"] == "bearer"
+    assert body["access_token"]
+    assert body["access_token"] != user["token"]
+
+    # The fresh token works immediately; the old one is dead.
+    fresh_headers = {"Authorization": f"Bearer {body['access_token']}"}
+    me = anon_client.get("/api/auth/me", headers=fresh_headers)
+    assert me.status_code == 200
+    assert me.json()["email"] == "changer@example.com"
+    assert anon_client.get("/api/auth/me", headers=old_headers).status_code == 401
+
+    # Login confirms the password actually changed.
+    assert (
+        anon_client.post(
+            "/api/auth/login",
+            json={"email": "changer@example.com", "password": NEW_PASSWORD},
+        ).status_code
+        == 200
+    )
+    assert (
+        anon_client.post(
+            "/api/auth/login",
+            json={"email": "changer@example.com", "password": PASSWORD},
+        ).status_code
+        == 401
+    )
+
+
+def test_change_password_wrong_current_is_401_and_keeps_session(anon_client):
+    user = register_user(anon_client, email="wrong-current@example.com", password=PASSWORD)
+
+    response = anon_client.post(
+        "/api/auth/change-password",
+        json={"current_password": "not-my-password-1", "new_password": NEW_PASSWORD},
+        headers=user["headers"],
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Current password is incorrect"
+
+    # A failed attempt kills nothing: the session still works and the
+    # old password still logs in.
+    assert anon_client.get("/api/auth/me", headers=user["headers"]).status_code == 200
+    assert (
+        anon_client.post(
+            "/api/auth/login",
+            json={"email": "wrong-current@example.com", "password": PASSWORD},
+        ).status_code
+        == 200
+    )
+
+
+def test_change_password_requires_auth(anon_client):
+    response = anon_client.post(
+        "/api/auth/change-password",
+        json={"current_password": PASSWORD, "new_password": NEW_PASSWORD},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
+# --- rate limiting (v4.1) ---------------------------------------------------
+
+def test_login_rate_limit_returns_429_after_five_attempts(anon_client):
+    """The limiter is disabled under TESTING by default; this test flips
+    it on, proves the 6th login in a minute is a JSON 429, and flips it
+    back off — the rest of the suite must never be rate-limited."""
+    register_user(anon_client, email="limited@example.com", password=PASSWORD)
+    # A unique X-Forwarded-For IP: the key function prefers XFF, so this
+    # test's bucket cannot collide with any other test's.
+    headers = {"X-Forwarded-For": "203.0.113.99"}
+    assert limiter.enabled is False  # disabled under TESTING
+
+    limiter.enabled = True
+    try:
+        for _ in range(5):
+            response = anon_client.post(
+                "/api/auth/login",
+                json={"email": "limited@example.com", "password": PASSWORD},
+                headers=headers,
+            )
+            assert response.status_code == 200
+        sixth = anon_client.post(
+            "/api/auth/login",
+            json={"email": "limited@example.com", "password": PASSWORD},
+            headers=headers,
+        )
+        assert sixth.status_code == 429
+        assert "detail" in sixth.json()
+    finally:
+        limiter.enabled = False
+
+    assert limiter.enabled is False
+    # And logins work again immediately once the limiter is off.
+    assert (
+        anon_client.post(
+            "/api/auth/login",
+            json={"email": "limited@example.com", "password": PASSWORD},
+            headers=headers,
+        ).status_code
+        == 200
+    )

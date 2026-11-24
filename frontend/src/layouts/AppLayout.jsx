@@ -1,12 +1,35 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
-import { Bell, Menu, RefreshCw } from 'lucide-react'
+import { Bell, ChevronDown, KeyRound, LogOut, Menu, RefreshCw } from 'lucide-react'
 import { Sidebar } from '../components/Sidebar'
 import { useApi } from '../hooks/useApi'
 import { listAlerts } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user, logout } = useAuth()
+
+  // Header user menu — closes on outside click and on Escape.
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false)
+      }
+    }
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
 
   // Active alert count for the topbar bell (polled every 30s).
   const { data: activeAlerts } = useApi(
@@ -53,6 +76,54 @@ export function AppLayout() {
                 </span>
               )}
             </Link>
+
+            {/* User menu — the one place for account actions. */}
+            {user && (
+              <div className="relative" ref={menuRef}>
+                <button
+                  className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm text-zinc-700 transition hover:bg-zinc-100"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  aria-label="Account menu"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-100 text-xs font-semibold uppercase text-zinc-700">
+                    {user.email?.charAt(0) || '?'}
+                  </span>
+                  <span className="hidden max-w-40 truncate sm:block" title={user.email}>
+                    {user.email}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {menuOpen && (
+                  <div
+                    className="absolute right-0 top-full z-30 mt-1 w-60 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
+                    role="menu"
+                  >
+                    <p className="truncate border-b border-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900" title={user.email}>
+                      {user.email}
+                    </p>
+                    <Link
+                      to="/settings"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 transition hover:bg-zinc-50"
+                      role="menuitem"
+                    >
+                      <KeyRound className="h-4 w-4 text-zinc-400" />
+                      Change password
+                    </Link>
+                    <button
+                      onClick={logout}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 transition hover:bg-red-50"
+                      role="menuitem"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Log out
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </header>
 

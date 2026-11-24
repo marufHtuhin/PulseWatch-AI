@@ -1,16 +1,21 @@
 import { useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Activity } from 'lucide-react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Activity, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { apiErrorMessage } from '../api/client'
 
 export function Login() {
   const { user, loading: authLoading, login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Success message carried over from the password-reset page.
+  const successMessage = location.state?.message
 
   // Already signed in — go straight to the dashboard.
   if (!authLoading && user) return <Navigate to="/" replace />
@@ -42,6 +47,11 @@ export function Login() {
 
         <div className="card p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {successMessage && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700" role="status">
+                {successMessage}
+              </div>
+            )}
             {error && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
                 {error}
@@ -62,17 +72,33 @@ export function Login() {
               />
             </div>
             <div>
-              <label htmlFor="password" className="label">Password</label>
-              <input
-                id="password"
-                type="password"
-                className="input"
-                placeholder="Your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
+              <div className="flex items-baseline justify-between">
+                <label htmlFor="password" className="label">Password</label>
+                <Link to="/forgot-password" className="text-xs font-medium text-zinc-900 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  className="input pr-10"
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400 hover:text-zinc-700"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <button type="submit" className="btn-primary w-full" disabled={submitting}>
               {submitting ? 'Signing in…' : 'Sign in'}

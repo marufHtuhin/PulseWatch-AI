@@ -62,7 +62,9 @@ and the dashboard all work with zero configuration.
 - **Authentication + multi-user** — open registration, bcrypt
   passwords, JWT access tokens (24h). Every account sees only its
   own monitors, alerts, dashboard data, and settings; another user's
-  objects return 404, never 403.
+  objects return 404, never 403. Forgot-password via a 6-digit email
+  OTP (Brevo), change password with other-session invalidation, and
+  rate-limited auth endpoints.
 
 ## Screenshots
 
@@ -266,10 +268,41 @@ approval step.
 - **Tokens** are JWTs (HS256, `sub` = user id) valid for **24 hours**.
   The frontend stores the token in `localStorage` and sends it as
   `Authorization: Bearer <token>` on every API call. All `/api/*`
-  endpoints except `/api/auth/*` require a token; `/`, `/health`, and
-  `/docs` stay public. A missing token is 401
+  endpoints require a token except the public auth endpoints
+  (`register`, `login`, `forgot-password`, `reset-password`); `/`,
+  `/health`, and `/docs` stay public. A missing token is 401
   (`Authentication required`); an invalid or expired token is 401
   (`Could not validate credentials`).
+- **Forgot / reset password** — `POST /api/auth/forgot-password`
+  (`{email}`) emails a **6-digit code** via Brevo (10-minute expiry).
+  The code itself is never stored — only its sha256 hash — and a new
+  request invalidates any earlier unused code. At most **3 codes per
+  email per hour**; over the cap the endpoint still returns the same
+  generic 200 without sending anything. `POST
+  /api/auth/reset-password` (`{email, otp, new_password}`) sets the
+  new password; a code locks after **5 wrong guesses**, and every
+  failure (unknown email, no code, expired, used, or wrong code)
+  returns the same generic 400 so the endpoint cannot enumerate
+  users. Both endpoints always answer the same way whether or not
+  the email exists. Without `BREVO_API_KEY` + `EMAIL_FROM` the app
+  still runs, but no reset email is sent (a warning is logged
+  server-side) — see [Configuration](#configuration).
+- **Change password** — `POST /api/auth/change-password`
+  (`{current_password, new_password}`, requires a token) returns a
+  **fresh access token** for the current session and invalidates
+  every other session: tokens issued before the change are rejected
+  (401). A reset does the same — after resetting, all old sessions
+  must log in again. A wrong current password is 401
+  (`Current password is incorrect`) and leaves the session untouched.
+- **Rate limits** (slowapi, per IP — the first `X-Forwarded-For`
+  entry, else the client IP): login **5/minute**, register
+  **10/hour**, forgot-password **5/hour**, reset-password **10/hour**.
+  Over the limit the API answers **429**
+  (`Rate limit exceeded. Please try again later.`). Limits are
+  in-memory and per instance, so with multiple backend instances the
+  effective limit is N× the configured rate — Redis-backed limiting
+  (slowapi supports it via `storage_uri`) is the multi-instance
+  upgrade. Rate limiting is disabled under pytest.
 - **Per-user isolation** — monitors, check records, alerts, dashboard
   data, Telegram settings, and retention windows all belong to one
   account. Requesting another user's object by id returns **404**
@@ -299,12 +332,14 @@ approval step.
 
 ## Database Schema
 
-Six tables, identical on MySQL and SQLite (three dialect-agnostic Alembic
-migrations: `0001_initial`, `0002_v3_upgrades`, `0003_v4_auth`):
+Seven tables, identical on MySQL and SQLite (four dialect-agnostic Alembic
+migrations: `0001_initial`, `0002_v3_upgrades`, `0003_v4_auth`,
+`0004_v4_1_auth_ux`):
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | Accounts (auth) | `id`, `email` (unique), `password_hash` (bcrypt), `is_active`, `created_at` |
+| `users` | Accounts (auth) | `id`, `email` (unique), `password_hash` (bcrypt), `password_changed_at` (set on change/reset — JWTs issued before it are rejected), `is_active`, `created_at` |
+| `password_reset_tokens` | One row per forgot-password request | `id`, `user_id` (FK → `users`, cascade), `otp_hash` (sha256 of the 6-digit code — the code itself is never stored), `expires_at` (10 min), `attempts` (locks at 5), `used`, `created_at` |
 | `monitors` | Watched endpoints | `id`, `user_id` (FK → `users`, owner; NULL = pre-v4 ownerless), `name`, `url`, `method`, `headers` (JSON, secrets stored verbatim — masked at the API boundary), `request_body`, `timeout_seconds`, `interval_seconds`, `expected_status_codes`, `expected_fields`, `check_zero_records`, `latency_threshold_ms`, `max_response_size_bytes`, `alert_after_failures`, `consecutive_failures`, `cert_expires_at`, `cert_checked_at`, `is_active`, `last_status`, `last_response_time_ms`, `last_status_code`, `last_checked_at` |
 | `monitoring_records` | One row per check (metadata only) | `id`, `monitor_id` (FK, cascade), `response_time_ms`, `status_code`, `response_size_bytes`, `records_returned`, `is_success`, `error_message`, `checked_at`, `content_type`, `is_valid_json` |
 | `anomalies` | One row per rule hit | `id`, `monitor_id` (FK, cascade), `record_id` (FK, cascade), `anomaly_type`, `severity`, `description`, `detected_at` |
@@ -325,6 +360,9 @@ Base URL (dev): `http://127.0.0.1:8000`. Full contract:
 | `POST /api/auth/register` | Register (open): `{email, password}` → 201 `{user, access_token, token_type}` |
 | `POST /api/auth/login` | Log in: `{email, password}` → 200 `{access_token, token_type}` (401 on bad credentials) |
 | `GET /api/auth/me` | Current user `{id, email, created_at}` (requires token) |
+| `POST /api/auth/change-password` | Change password: `{current_password, new_password}` → 200 `{access_token, token_type}` (fresh token; all older sessions invalidated; 401 on a wrong current password) |
+| `POST /api/auth/forgot-password` | Request a reset code: `{email}` → always 200 `{message}` (generic — never reveals whether the email exists); 6-digit Brevo OTP, 10-min expiry, 3/hour per email |
+| `POST /api/auth/reset-password` | Reset with a code: `{email, otp, new_password}` → 200 `{message}` (400 `Invalid or expired reset code.` on any failure; code locks after 5 wrong guesses) |
 | `POST /api/monitors` | Create monitor (201) |
 | `GET /api/monitors` | List monitors (`search`, `is_active`, `status`, `page`, `page_size`) |
 | `GET /api/monitors/{id}` | Get one monitor (404 if missing) |
@@ -351,9 +389,11 @@ Base URL (dev): `http://127.0.0.1:8000`. Full contract:
 
 List endpoints return `{items, total, page, page_size}`. Errors use
 FastAPI's default `{detail}` shape with proper HTTP status codes.
-Every `/api/*` endpoint except the three `/api/auth/*` ones requires a
-Bearer token (`Authorization: Bearer <token>`); unauthenticated
-requests get 401, and another user's object by id gets 404.
+Every `/api/*` endpoint requires a Bearer token
+(`Authorization: Bearer <token>`) except the four public auth ones
+(`register`, `login`, `forgot-password`, `reset-password`);
+unauthenticated requests get 401, and another user's object by id
+gets 404.
 
 ## Project Structure
 
@@ -375,22 +415,24 @@ pulsewatch-ai/
 │   ├── requirements.txt
 │   ├── .env.example
 │   ├── alembic.ini / alembic/ # Migrations (0001_initial, 0002_v3_upgrades,
-│   │                           #   0003_v4_auth)
+│   │                           #   0003_v4_auth, 0004_v4_1_auth_ux)
 │   ├── pytest.ini
-│   ├── tests/                 # pytest suite (315 tests)
+│   ├── tests/                 # pytest suite (329 tests)
 │   └── app/
 │       ├── main.py            # FastAPI app + lifespan (scheduler start)
 │       ├── api/routes/        # health, auth, monitors, monitoring, alerts,
 │       │                      #   dashboard, settings
 │       ├── core/              # config, logging, security (SSRF + masking),
-│       │                      #   auth (bcrypt + JWT + admin bootstrap)
+│       │                      #   auth (bcrypt + JWT + admin bootstrap),
+│       │                      #   rate_limit (slowapi, auth endpoints)
 │       ├── database/          # engine/session, declarative base
-│       ├── models/            # User, Monitor, MonitoringRecord, Anomaly,
-│       │                      #   Alert, AppSettings
+│       ├── models/            # User, PasswordResetToken, Monitor,
+│       │                      #   MonitoringRecord, Anomaly, Alert, AppSettings
 │       ├── schemas/           # Pydantic request/response models
 │       ├── services/          # monitoring, http, http_client, anomaly,
 │       │                      #   alert, ai, dashboard, settings,
-│       │                      #   notification (Telegram), retention, ssl
+│       │                      #   notification (Telegram), retention, ssl,
+│       │                      #   email (Brevo password-reset OTP)
 │       ├── scheduler/         # APScheduler jobs (1 per active monitor
 │       │                      #   + daily 03:00 UTC retention cleanup)
 │       └── utils/             # UTC time helpers
@@ -514,6 +556,7 @@ All backend settings live in `backend/.env` (copy from
 | `DATABASE_URL` | `sqlite:///./pulsewatch.db` | MySQL: `mysql+pymysql://user:pass@host:3306/pulsewatch` |
 | `SECRET_KEY` | `dev-secret-change-me` | **Required in production** (`APP_ENV=production` refuses to start without a real value). Signs the JWTs. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | _(empty)_ | Optional. When **both** are set, startup creates that admin account (if missing) and assigns all ownerless pre-v4 monitors + one ownerless settings row to it. See [Authentication](#authentication). |
+| `BREVO_API_KEY` / `EMAIL_FROM` | _(empty)_ | Optional. Brevo credentials for forgot-password emails (the 6-digit reset code). `EMAIL_FROM` **must be a sender address verified in the Brevo account** or sends fail. Without both, the app still runs but no reset email is sent (a warning is logged server-side). |
 | `GEMINI_API_KEY` | _(empty)_ | Optional. Without it, alerts use deterministic fallback templates. |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model for AI incident explanations. |
 | `TELEGRAM_BOT_TOKEN` | _(empty)_ | Optional fallback for Telegram notifications. A token saved in Settings wins over this. |
@@ -569,15 +612,23 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**315 tests, all passing** (last run: 24 Nov 2026), covering:
+**329 tests, all passing** (last run: 24 Nov 2026), covering:
 
 - Auth: registration (201 + token, duplicate email 400, short password
   / invalid email 422), login (success, wrong password / unknown user
   401 with one message), `/me` (missing / invalid / expired token and
   deactivated user all 401), cross-user isolation (another user's
   monitor/alerts return 404 or are excluded from lists, batch checks
-  skip foreign ids, settings isolated per user), and the admin
-  bootstrap claiming ownerless monitors + settings
+  skip foreign ids, settings isolated per user), the admin
+  bootstrap claiming ownerless monitors + settings, change-password
+  (fresh token returned, old token invalidated, wrong current
+  password 401 with the session untouched), forgot/reset password
+  (Brevo send mocked: OTP stored as a sha256 hash only, generic
+  replies for unknown emails, 3/hour per-email cap, reset success
+  invalidating the old session, wrong/expired/reused/locked codes
+  all 400 with one generic message, unconfigured Brevo still
+  returning 200), and the login rate limit (6th login in a minute
+  → JSON 429)
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
 - All 11 anomaly rules individually (incl. severity tiers, the
@@ -653,18 +704,24 @@ on every push and pull request.
 - **Authentication** — bcrypt password hashes (never stored or returned
   as plaintext), JWT access tokens (HS256, 24h) signed with `SECRET_KEY`
   — required in production, where the dev default is rejected at
-  startup. Every `/api/*` endpoint except `/api/auth/*` requires a
-  valid token; per-user scoping means one account cannot read, modify,
-  or delete another's data (cross-user access returns 404). CORS is
-  restricted to `FRONTEND_URL`.
+  startup. Every `/api/*` endpoint except the four public auth ones
+  (`register`, `login`, `forgot-password`, `reset-password`) requires a
+  valid token; a password change or reset invalidates all tokens issued
+  before it. Reset codes are stored as sha256 hashes only, and the
+  auth endpoints are rate-limited (login 5/minute, register 10/hour,
+  forgot-password 5/hour, reset-password 10/hour per IP). Per-user
+  scoping means one account cannot read, modify, or delete another's
+  data (cross-user access returns 404). CORS is restricted to
+  `FRONTEND_URL`.
 
 ## Limitations
 
-- **Auth is deliberately minimal (v4).** Registration is open, and
-  there is **no email verification, no rate limiting on login, no
-  password reset, no refresh tokens, and no payments/subscriptions**.
-  JWTs live in `localStorage` (not httpOnly cookies) and expire after
-  24 hours, after which the user logs in again. These are future work
+- **Auth is deliberately minimal (v4.1).** Registration is open, and
+  there is **no email verification, no refresh tokens, and no
+  payments/subscriptions**. Password reset (Brevo email OTP) and
+  rate limiting on the auth endpoints landed in v4.1. JWTs live in
+  `localStorage` (not httpOnly cookies) and expire after 24 hours,
+  after which the user logs in again. These are future work
   (see Roadmap), not oversights — the current design trades them for a
   zero-dependency, free-tier-friendly deployment.
 - **MySQL was not verified in this sandbox** (no MySQL server, no
@@ -689,14 +746,15 @@ on every push and pull request.
 
 ## Roadmap
 
-- Auth hardening: email verification, login rate limiting, password
-  reset, refresh tokens, httpOnly-cookie token storage.
+- Auth hardening: email verification, refresh tokens, httpOnly-cookie
+  token storage. (Password reset and login rate limiting landed in
+  v4.1.)
 - Alert notifications: email, Slack, and generic webhooks (Telegram is
   already implemented).
 - Uptime history charts per monitor (30-day view) and status pages.
 - Distributed scheduler locking (or a single-worker deployment note)
   for multi-replica setups.
-- Frontend tests (Vitest + Testing Library) — the backend has 315
+- Frontend tests (Vitest + Testing Library) — the backend has 329
   tests; the frontend currently has none.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.

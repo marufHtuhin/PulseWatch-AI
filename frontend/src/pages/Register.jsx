@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Activity } from 'lucide-react'
+import { Activity, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { apiErrorMessage } from '../api/client'
 
@@ -9,6 +9,9 @@ export function Register() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -20,6 +23,10 @@ export function Register() {
     setError(null)
     if (password.length < 8) {
       setError('Password must be at least 8 characters.')
+      return
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.')
       return
     }
     setSubmitting(true)
@@ -67,18 +74,54 @@ export function Register() {
             </div>
             <div>
               <label htmlFor="password" className="label">Password</label>
-              <input
-                id="password"
-                type="password"
-                className="input"
-                placeholder="Choose a password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  className="input pr-10"
+                  placeholder="Choose a password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400 hover:text-zinc-700"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               <p className="mt-1.5 text-xs text-zinc-400">At least 8 characters.</p>
+            </div>
+            <div>
+              <label htmlFor="confirm-password" className="label">Confirm password</label>
+              <div className="relative">
+                <input
+                  id="confirm-password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  className="input pr-10"
+                  placeholder="Repeat your password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400 hover:text-zinc-700"
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <button type="submit" className="btn-primary w-full" disabled={submitting}>
               {submitting ? 'Creating account…' : 'Create account'}

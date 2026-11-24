@@ -17,6 +17,7 @@ import asyncio
 import ipaddress
 import os
 import tempfile
+import time
 import uuid
 
 import pytest
@@ -98,6 +99,20 @@ def register_user(client, email=None, password=TEST_USER_PASSWORD) -> dict:
 def auth_headers(client, email=None) -> dict:
     """Register a fresh user via the API; return its Authorization headers."""
     return register_user(client, email=email)["headers"]
+
+
+def wait_for_next_second() -> None:
+    """Sleep until the next whole UTC second (at most ~1.05s).
+
+    JWT ``iat`` and ``password_changed_at`` are both second-precision,
+    and a token issued in the SAME second as a password change is NOT
+    invalidated (``issued_at < changed_at`` is False when equal). Tests
+    asserting that a password change/reset kills an old token must call
+    this after the token was issued, or they flake whenever both land
+    in the same second.
+    """
+    now = time.time()
+    time.sleep(1 - (now % 1) + 0.05)
 
 
 @pytest.fixture()

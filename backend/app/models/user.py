@@ -29,6 +29,12 @@ class User(Base):
     # plaintext password, and never returned by any API response.
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Set whenever the password is changed or reset; JWTs issued before
+    # this instant are rejected (see app.core.auth). NULL for users who
+    # never changed their password — their pre-v4.1 tokens stay valid.
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utcnow, server_default=func.now()
     )

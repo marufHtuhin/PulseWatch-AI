@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # persisted in AppSettings (via the settings API) wins over env.
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_CHAT_ID: str | None = None
+    # Brevo (password-reset emails): API key + sender address. EMAIL_FROM
+    # must be a sender address verified in the Brevo account (no domain
+    # needed — a verified Gmail address works). When either is unset,
+    # forgot-password still returns its generic 200 and the reset email
+    # is simply not sent (a warning is logged).
+    BREVO_API_KEY: str | None = None
+    EMAIL_FROM: str | None = None
     FRONTEND_URL: str = "http://localhost:5173"
     ALLOW_LOCAL_URLS: bool = False
     MAX_CONCURRENCY: int = 10

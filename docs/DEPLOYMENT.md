@@ -5,7 +5,8 @@
 > auto-configured for `*.tidbcloud.com` hosts (app + Alembic),
 > the Dockerfile listens on Render's `$PORT`, a Render Blueprint
 > (`render.yaml`) and a Vercel SPA config (`frontend/vercel.json`)
-> are included, and the v4 auth migration (`0003_v4_auth`) runs
+> are included, and the auth migrations (`0003_v4_auth` + `0004_v4_1_auth_ux`,
+> password-reset tokens) run
 > automatically with the rest. The steps below have **not** been
 > performed end to end yet — treat the first deployment as a
 > verification run and update this guide with anything that differs.
@@ -87,8 +88,9 @@ The repo ships a Render Blueprint (`render.yaml`).
    frontend is not deployed yet and update it afterwards; Render
    restarts on env changes).
 3. Deploy. On first start the container runs `alembic upgrade head`,
-   which creates the six tables and applies the migrations through
-   `0003_v4_auth` (users table + per-user ownership) — no extra step
+   which creates the seven tables and applies the migrations through
+   `0004_v4_1_auth_ux` (users table + per-user ownership, password-reset
+   tokens) — no extra step
    is needed.
 4. **Upgrading a pre-v4 deployment?** If the database already has
    monitors created before auth existed, they are ownerless and
@@ -126,6 +128,8 @@ The repo ships a Render Blueprint (`render.yaml`).
    | `LOG_LEVEL` | `INFO` |
    | `GEMINI_API_KEY` | (optional) your Gemini key, or leave unset for fallback templates |
    | `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
+   | `BREVO_API_KEY` | (optional) Brevo API key for forgot-password emails. The same Brevo account/key as FarmMarket works. Without it (or without `EMAIL_FROM`) the app still runs, but no reset email is sent — the forgot-password endpoint still returns its generic 200. |
+   | `EMAIL_FROM` | (optional) Sender address for forgot-password emails. **Must be a sender address verified in the Brevo account** (a verified Gmail address works — no domain needed) or sends fail. |
    | `TELEGRAM_BOT_TOKEN` | (optional) fallback bot token for Telegram notifications; can also be set in the app's Settings UI, which takes precedence |
    | `TELEGRAM_CHAT_ID` | (optional) fallback chat ID for Telegram notifications; can also be set in the app's Settings UI, which takes precedence |
    | `ALLOW_LOCAL_URLS` | `false` (never `true` in production) |
@@ -133,8 +137,9 @@ The repo ships a Render Blueprint (`render.yaml`).
    | `PULSEWATCH_TESTING` | `0` |
 
 5. Deploy. On first start the container runs `alembic upgrade head`,
-   which creates the six tables and applies the migrations through
-   `0003_v4_auth` (users table + per-user ownership) — no extra step
+   which creates the seven tables and applies the migrations through
+   `0004_v4_1_auth_ux` (users table + per-user ownership, password-reset
+   tokens) — no extra step
    is needed.
 6. Verify: `https://<your-service>.onrender.com/health` should return
    `{"status": "ok", "db": "ok", "scheduler": "running"}` and
@@ -202,7 +207,7 @@ The repo ships a Render Blueprint (`render.yaml`).
 - **Breaking schema changes:** create a new Alembic revision
   (`alembic revision --autogenerate -m "..."`) and commit it; the next
   backend deploy applies it. Never edit the existing `0001_initial`,
-  `0002_v3_upgrades`, or `0003_v4_auth` migration after it has run
+  `0002_v3_upgrades`, `0003_v4_auth`, or `0004_v4_1_auth_ux` migration after it has run
   against a real database.
 - **`CREATE command denied ... for table 'alembic_version'` (seen
   24 Nov 2026):** the `DATABASE_URL` user lacks CREATE on the
@@ -222,8 +227,9 @@ The repo ships a Render Blueprint (`render.yaml`).
 - **Authentication is on, and registration is open.** Anyone who finds
   the frontend URL can create an account and use the app (each account
   sees only its own data). That is the intended v4 behaviour — but be
-  aware there is no email verification or login rate limiting yet, so
-  do not publish the URL more widely than you intend until those land.
+  aware there is no email verification yet, so do not publish the URL
+  more widely than you intend until that lands. Login and the other
+  auth endpoints are rate-limited (login 5/minute per IP) since v4.1.
 - `SECRET_KEY` must be a strong random value in production (Render
   prompts for it with the Blueprint); the app refuses to start with
   the dev default. Never reuse it across projects, and never commit it.

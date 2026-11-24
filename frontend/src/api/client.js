@@ -25,14 +25,26 @@ api.interceptors.request.use((config) => {
 // and send the user to /login. Guarded so we never redirect-loop while
 // already on an auth page (a failed login attempt is a 401 too, and the
 // form needs to show that error instead of navigating away).
+//
+// Exception: a 401 from POST /auth/change-password only means the current
+// password was wrong — the session is still valid, so the token must NOT
+// be cleared and the user must NOT be redirected; the form shows the error.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error?.response?.status === 401) {
-      localStorage.removeItem(TOKEN_KEY)
-      const path = window.location.pathname
-      if (path !== '/login' && path !== '/register') {
-        window.location.href = '/login'
+      const requestUrl = error.config?.url || ''
+      if (!requestUrl.includes('/auth/change-password')) {
+        localStorage.removeItem(TOKEN_KEY)
+        const path = window.location.pathname
+        if (
+          path !== '/login' &&
+          path !== '/register' &&
+          path !== '/forgot-password' &&
+          path !== '/reset-password'
+        ) {
+          window.location.href = '/login'
+        }
       }
     }
     return Promise.reject(error)
@@ -57,6 +69,16 @@ export function apiErrorMessage(err, fallback = 'Something went wrong') {
 export function isNotFound(err) {
   return err?.response?.status === 404
 }
+
+// ---- Auth (password management) ----
+export const changePassword = (payload) =>
+  api.post('/auth/change-password', payload).then((r) => r.data)
+
+export const forgotPassword = (payload) =>
+  api.post('/auth/forgot-password', payload).then((r) => r.data)
+
+export const resetPassword = (payload) =>
+  api.post('/auth/reset-password', payload).then((r) => r.data)
 
 // ---- Monitors ----
 export const listMonitors = (params = {}) =>

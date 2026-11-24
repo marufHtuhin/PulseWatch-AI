@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Info, Save, Send, Trash2, XCircle } from 'lucide-react'
+import { CheckCircle2, Eye, EyeOff, Info, Save, Send, Trash2, XCircle } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import {
   apiErrorMessage,
+  changePassword,
   cleanupHistory,
   getCleanupPreview,
   getSettings,
   testNotification,
   updateSettings,
 } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { ErrorState, LoadingSkeleton, PageHeader } from '../components/Cards'
 import { formatNumber } from '../utils/format'
@@ -45,6 +47,7 @@ function settingsToForm(data) {
 
 export function Settings() {
   const toast = useToast()
+  const { updateToken } = useAuth()
   const settings = useApi(getSettings, [], { initialData: null })
   const preview = useApi(getCleanupPreview, [], { initialData: null })
   const [form, setForm] = useState(null)
@@ -52,6 +55,16 @@ export function Settings() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [cleaning, setCleaning] = useState(false)
+
+  // Change password form (independent of the settings form).
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false)
+  const [passwordError, setPasswordError] = useState(null)
+  const [changingPassword, setChangingPassword] = useState(false)
 
   useEffect(() => {
     if (settings.data && !form) {
@@ -159,6 +172,43 @@ export function Settings() {
       toast.error(apiErrorMessage(err, 'Could not clean up history'))
     } finally {
       setCleaning(false)
+    }
+  }
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault()
+    setPasswordError(null)
+    if (newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters.')
+      return
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('Passwords do not match.')
+      return
+    }
+    setChangingPassword(true)
+    try {
+      // The API returns a fresh token (the old one is invalidated
+      // server-side) — swap it in so the session stays alive.
+      const result = await changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      if (result?.access_token) updateToken(result.access_token)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmNewPassword('')
+      toast.success('Password changed successfully. Other sessions have been signed out.')
+    } catch (err) {
+      // A 401 here means the current password was wrong — the session
+      // itself is fine (the 401 interceptor skips this endpoint).
+      if (err?.response?.status === 401) {
+        setPasswordError('Current password is incorrect.')
+      } else {
+        setPasswordError(apiErrorMessage(err, 'Could not change your password — please try again.'))
+      }
+    } finally {
+      setChangingPassword(false)
     }
   }
 
@@ -456,59 +506,159 @@ export function Settings() {
           </div>
         </form>
 
-        {/* Server status (read-only) */}
-        <div className="card h-fit p-5">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-900">Server status</h2>
-          <dl className="space-y-4 text-sm">
-            <div className="flex items-start justify-between gap-3">
-              <dt className="shrink-0 whitespace-nowrap text-zinc-500">Gemini AI</dt>
-              <dd className="text-right">
-                {s.gemini_configured ? (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-green-600">
-                    <CheckCircle2 className="h-4 w-4" />
-                    Configured
+        <div className="space-y-6">
+          {/* Security */}
+          <div className="card h-fit p-5" id="security">
+            <h2 className="mb-1 text-sm font-semibold text-zinc-900">Security</h2>
+            <p className="mb-5 text-xs text-zinc-500">
+              Change your password. Other sessions are signed out when you do.
+            </p>
+            <form onSubmit={handleChangePassword} className="space-y-4" noValidate>
+              {passwordError && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                  {passwordError}
+                </div>
+              )}
+              <div>
+                <label className="label" htmlFor="current_password">
+                  Current password
+                </label>
+                <div className="relative">
+                  <input
+                    id="current_password"
+                    type={showCurrentPassword ? 'text' : 'password'}
+                    className="input pr-10"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400 hover:text-zinc-700"
+                    onClick={() => setShowCurrentPassword((v) => !v)}
+                    aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
+                    tabIndex={-1}
+                  >
+                    {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="label" htmlFor="new_password">
+                  New password
+                </label>
+                <div className="relative">
+                  <input
+                    id="new_password"
+                    type={showNewPassword ? 'text' : 'password'}
+                    className="input pr-10"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400 hover:text-zinc-700"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                    tabIndex={-1}
+                  >
+                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">At least 8 characters.</p>
+              </div>
+              <div>
+                <label className="label" htmlFor="confirm_new_password">
+                  Confirm new password
+                </label>
+                <div className="relative">
+                  <input
+                    id="confirm_new_password"
+                    type={showConfirmNewPassword ? 'text' : 'password'}
+                    className="input pr-10"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-zinc-400 hover:text-zinc-700"
+                    onClick={() => setShowConfirmNewPassword((v) => !v)}
+                    aria-label={showConfirmNewPassword ? 'Hide password' : 'Show password'}
+                    tabIndex={-1}
+                  >
+                    {showConfirmNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button type="submit" className="btn-primary" disabled={changingPassword}>
+                  {changingPassword ? 'Changing…' : 'Change password'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Server status (read-only) */}
+          <div className="card h-fit p-5">
+            <h2 className="mb-4 text-sm font-semibold text-zinc-900">Server status</h2>
+            <dl className="space-y-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <dt className="shrink-0 whitespace-nowrap text-zinc-500">Gemini AI</dt>
+                <dd className="text-right">
+                  {s.gemini_configured ? (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-green-600">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Configured
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
+                      <XCircle className="h-4 w-4" />
+                      Not configured
+                    </span>
+                  )}
+                  <span className="mt-0.5 block text-[11px] text-zinc-400">
+                    {s.gemini_configured
+                      ? 'Alerts include AI-generated explanations.'
+                      : 'Alerts use deterministic templates until a Gemini key is set.'}
                   </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
-                    <XCircle className="h-4 w-4" />
-                    Not configured
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="shrink-0 whitespace-nowrap text-zinc-500">Local URLs allowed</dt>
+                <dd className="text-right">
+                  {s.allow_local_urls ? (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
+                      <Info className="h-4 w-4" />
+                      Yes (dev only)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-green-600">
+                      <CheckCircle2 className="h-4 w-4" />
+                      No — SSRF protected
+                    </span>
+                  )}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="shrink-0 whitespace-nowrap text-zinc-500">Environment</dt>
+                <dd>
+                  <span className="badge border border-zinc-200 bg-zinc-50 font-mono text-zinc-600">
+                    {s.app_env || '—'}
                   </span>
-                )}
-                <span className="mt-0.5 block text-[11px] text-zinc-400">
-                  {s.gemini_configured
-                    ? 'Alerts include AI-generated explanations.'
-                    : 'Alerts use deterministic templates until a Gemini key is set.'}
-                </span>
-              </dd>
-            </div>
-            <div className="flex items-start justify-between gap-3">
-              <dt className="shrink-0 whitespace-nowrap text-zinc-500">Local URLs allowed</dt>
-              <dd className="text-right">
-                {s.allow_local_urls ? (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
-                    <Info className="h-4 w-4" />
-                    Yes (dev only)
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-green-600">
-                    <CheckCircle2 className="h-4 w-4" />
-                    No — SSRF protected
-                  </span>
-                )}
-              </dd>
-            </div>
-            <div className="flex items-start justify-between gap-3">
-              <dt className="shrink-0 whitespace-nowrap text-zinc-500">Environment</dt>
-              <dd>
-                <span className="badge border border-zinc-200 bg-zinc-50 font-mono text-zinc-600">
-                  {s.app_env || '—'}
-                </span>
-              </dd>
-            </div>
-          </dl>
-          <p className="mt-5 border-t border-zinc-200 pt-4 text-xs leading-relaxed text-zinc-400">
-            These values are read from the server environment and can&apos;t be changed here.
-          </p>
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-5 border-t border-zinc-200 pt-4 text-xs leading-relaxed text-zinc-400">
+              These values are read from the server environment and can&apos;t be changed here.
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -75,8 +75,15 @@ export function AuthProvider({ children }) {
     window.location.href = '/login'
   }, [clearSession])
 
+  // Swap in a fresh token without touching the user session — used after
+  // a password change, which rotates the token server-side.
+  const updateToken = useCallback((newToken) => {
+    localStorage.setItem(TOKEN_KEY, newToken)
+    setToken(newToken)
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, loading }}>
+    <AuthContext.Provider value={{ user, token, login, register, logout, updateToken, loading }}>
       {children}
     </AuthContext.Provider>
   )

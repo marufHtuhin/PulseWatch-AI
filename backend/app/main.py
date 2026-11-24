@@ -7,13 +7,16 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
 from app.api.router import api_router, root_router
 from app.core.auth import bootstrap_admin
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.core.rate_limit import limiter
 from app.database.connection import SessionLocal
 from app.scheduler.jobs import shutdown_scheduler, start_scheduler
 
@@ -57,6 +60,19 @@ app = FastAPI(
     description="Intelligent API Monitoring & Anomaly Alert System",
     lifespan=lifespan,
 )
+
+# slowapi keeps its limiter on app.state; the rate-limit decorators read
+# it from there.
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):  # noqa: ARG001
+    """slowapi's default 429 is plain text; the API speaks JSON."""
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."},
+    )
 
 app.add_middleware(
     CORSMiddleware,

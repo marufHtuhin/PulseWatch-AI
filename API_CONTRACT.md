@@ -18,9 +18,10 @@ Base URL (dev): backend on http://127.0.0.1:8000. Frontend dev server proxies
 
 ## Authentication
 
-All `/api/*` endpoints except `/api/auth/*` require a Bearer token:
-`Authorization: Bearer <access_token>`. `/`, `/health`, and `/docs`
-stay public.
+All `/api/*` endpoints require a Bearer token:
+`Authorization: Bearer <access_token>`, except the four public auth
+endpoints (`register`, `login`, `forgot-password`,
+`reset-password`). `/`, `/health`, and `/docs` stay public.
 
 - `POST /api/auth/register` — body `{ "email": "...", "password": "..." }`
   (valid email, password 8–128 chars). Returns **201** +
@@ -37,6 +38,49 @@ stay public.
   failure, so the endpoint cannot enumerate users.
 - `GET /api/auth/me` — returns `{ "id": 1, "email": "...",
   "created_at": "..." }` for the token's user.
+- `POST /api/auth/change-password` — requires a Bearer token. Body
+  `{ "current_password": "...", "new_password": "..." }` (new
+  password 8–128 chars). Returns **200** +
+  `{ "access_token": "...", "token_type": "bearer" }` — a fresh token
+  for the current session. Every token issued before the change is
+  rejected (401) from then on, so all other sessions are signed out.
+  Wrong current password → **401**
+  `{ "detail": "Current password is incorrect" }`; the existing
+  session is left untouched.
+- `POST /api/auth/forgot-password` — body `{ "email": "..." }`.
+  Always returns **200** +
+  `{ "message": "If an account exists for this email, a reset code
+  has been sent." }` — the same message whether or not the email
+  exists, so the endpoint cannot enumerate users. For a real account
+  it emails a **6-digit code** via Brevo (10-minute expiry); only the
+  sha256 hash of the code is stored, never the code itself, and a new
+  request invalidates any earlier unused code. At most **3 codes per
+  email per hour** — over the cap the response is still the generic
+  200, but no code is created or sent. If Brevo is not configured
+  (`BREVO_API_KEY` / `EMAIL_FROM` unset) no email is sent, but the
+  response is still the generic 200 (a warning is logged
+  server-side).
+- `POST /api/auth/reset-password` — body `{ "email": "...",
+  "otp": "123456", "new_password": "..." }` (otp exactly 6 chars,
+  new password 8–128 chars). Returns **200** +
+  `{ "message": "Password reset successfully. You can now sign in
+  with your new password." }`. A successful reset invalidates all
+  tokens issued before it (all sessions must log in again). Every
+  failure — unknown email, no live code, expired code, used code, or
+  wrong code — returns the same **400**
+  `{ "detail": "Invalid or expired reset code." }`. A code locks
+  (marked used) after **5 wrong guesses**; a used code cannot be
+  submitted twice.
+- **Rate limits** (slowapi, per IP — the first `X-Forwarded-For`
+  entry, else the client IP): login **5/minute**, register
+  **10/hour**, forgot-password **5/hour**, reset-password **10/hour**.
+  Over the limit → **429**
+  `{ "detail": "Rate limit exceeded. Please try again later." }`.
+  `/me` and `/change-password` are not rate-limited: change-password
+  is authed, so wrong-current-password attempts are already gated by
+  needing a valid session. Limits are in-memory and per instance
+  (Redis-backed limiting via slowapi's `storage_uri` is the
+  multi-instance upgrade); rate limiting is disabled under pytest.
 - Tokens are JWTs (HS256, `sub` = user id), valid for **24 hours**.
   Passwords are bcrypt-hashed; a hash is never returned by any endpoint.
 - Missing token → **401** `{ "detail": "Authentication required" }`.
