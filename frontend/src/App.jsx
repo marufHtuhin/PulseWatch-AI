@@ -9,6 +9,7 @@ import { MonitorDetail } from './pages/MonitorDetail'
 import { Alerts } from './pages/Alerts'
 import { AlertDetail } from './pages/AlertDetail'
 import { Settings } from './pages/Settings'
+import { Admin } from './pages/Admin'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
 import { ForgotPassword } from './pages/ForgotPassword'
@@ -33,6 +34,16 @@ function ProtectedRoute() {
   return <Outlet />
 }
 
+/**
+ * AdminRoute — nested inside ProtectedRoute, so `user` is guaranteed set.
+ * Non-admins are sent back to the dashboard.
+ */
+function AdminRoute() {
+  const { user } = useAuth()
+  if (!user?.is_admin) return <Navigate to="/dashboard" replace />
+  return <Outlet />
+}
+
 const router = createBrowserRouter([
   // Public auth pages — no app layout, /login is the entry point.
   { path: '/login', element: <Login /> },
@@ -47,6 +58,9 @@ const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: <Dashboard /> },
+          // Alias so /dashboard (e.g. the AdminRoute redirect target) lands
+          // on the dashboard instead of the NotFound page.
+          { path: 'dashboard', element: <Dashboard /> },
           { path: 'monitors', element: <Monitors /> },
           { path: 'monitors/new', element: <MonitorForm /> },
           { path: 'monitors/:id', element: <MonitorDetail /> },
@@ -54,6 +68,10 @@ const router = createBrowserRouter([
           { path: 'alerts', element: <Alerts /> },
           { path: 'alerts/:id', element: <AlertDetail /> },
           { path: 'settings', element: <Settings /> },
+          {
+            element: <AdminRoute />,
+            children: [{ path: 'admin', element: <Admin /> }],
+          },
           { path: '*', element: <NotFound /> },
         ],
       },

@@ -87,21 +87,20 @@ export function ForgotPassword() {
               <button type="submit" className="btn-primary w-full" disabled={submitting}>
                 {submitting ? 'Sending…' : 'Send reset code'}
               </button>
+              <p className="text-center text-sm text-zinc-500">
+                Have a code?{' '}
+                <Link to="/reset-password" className="font-medium text-zinc-900 hover:underline">
+                  Reset your password
+                </Link>
+              </p>
+              <p className="text-center text-sm text-zinc-500">
+                <Link to="/login" className="font-medium text-zinc-900 hover:underline">
+                  Back to log in
+                </Link>
+              </p>
             </form>
           )}
         </div>
-
-        <p className="mt-4 text-center text-sm text-zinc-500">
-          Have a code?{' '}
-          <Link to="/reset-password" className="font-medium text-zinc-900 hover:underline">
-            Reset your password
-          </Link>
-        </p>
-        <p className="mt-2 text-center text-sm text-zinc-500">
-          <Link to="/login" className="font-medium text-zinc-900 hover:underline">
-            Back to log in
-          </Link>
-        </p>
       </div>
     </div>
   )

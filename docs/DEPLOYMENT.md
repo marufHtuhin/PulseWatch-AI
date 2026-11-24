@@ -6,7 +6,7 @@
 > the Dockerfile listens on Render's `$PORT`, a Render Blueprint
 > (`render.yaml`) and a Vercel SPA config (`frontend/vercel.json`)
 > are included, and the auth migrations (`0003_v4_auth` + `0004_v4_1_auth_ux`,
-> password-reset tokens) run
+> password-reset tokens, `0005_v4_2_admin` admin flag) run
 > automatically with the rest. The steps below have **not** been
 > performed end to end yet — treat the first deployment as a
 > verification run and update this guide with anything that differs.
@@ -89,8 +89,8 @@ The repo ships a Render Blueprint (`render.yaml`).
    restarts on env changes).
 3. Deploy. On first start the container runs `alembic upgrade head`,
    which creates the seven tables and applies the migrations through
-   `0004_v4_1_auth_ux` (users table + per-user ownership, password-reset
-   tokens) — no extra step
+   `0005_v4_2_admin` (users table + per-user ownership, password-reset
+   tokens, admin flag) — no extra step
    is needed.
 4. **Upgrading a pre-v4 deployment?** If the database already has
    monitors created before auth existed, they are ownerless and
@@ -101,6 +101,10 @@ The repo ships a Render Blueprint (`render.yaml`).
    creates that admin account if it does not exist yet and assigns
    all ownerless monitors — plus one ownerless settings row — to it.
    Log in with those credentials to see your existing monitors.
+   **v4.2:** the same `ADMIN_EMAIL` account is also the admin — on
+   the first v4.2 boot the startup bootstrap auto-promotes the
+   existing `ADMIN_EMAIL` account to admin (or creates it as one).
+   No new environment variables are needed for v4.2.
 
 ### Option B — Manual Web Service
 
@@ -122,7 +126,7 @@ The repo ships a Render Blueprint (`render.yaml`).
    |---|---|
    | `DATABASE_URL` | `mysql+pymysql://<user>:<pass>@<host>:<port>/pulsewatch` (from step 1) |
    | `SECRET_KEY` | **Required.** JWT signing key — generate with `python -c "import secrets; print(secrets.token_hex(32))"`. The app refuses to start in production without a real value. |
-   | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | (optional) Only needed when upgrading a pre-v4 deployment: on boot, the app creates this admin account and assigns all ownerless monitors + one ownerless settings row to it. Omit for a fresh deployment. |
+   | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | (optional) The admin account. On boot, the app creates this account if it does not exist yet (or promotes the existing account with this email to admin on the first v4.2 boot) and assigns all ownerless monitors + one ownerless settings row to it. Omit for a fresh deployment with no admin. No new env vars are needed for v4.2. |
    | `FRONTEND_URL` | Your Vercel URL, e.g. `https://pulsewatchai.vercel.app` (comma-separated if several; a trailing `/` is tolerated) |
    | `APP_ENV` | `production` |
    | `LOG_LEVEL` | `INFO` |
@@ -138,8 +142,8 @@ The repo ships a Render Blueprint (`render.yaml`).
 
 5. Deploy. On first start the container runs `alembic upgrade head`,
    which creates the seven tables and applies the migrations through
-   `0004_v4_1_auth_ux` (users table + per-user ownership, password-reset
-   tokens) — no extra step
+   `0005_v4_2_admin` (users table + per-user ownership, password-reset
+   tokens, admin flag) — no extra step
    is needed.
 6. Verify: `https://<your-service>.onrender.com/health` should return
    `{"status": "ok", "db": "ok", "scheduler": "running"}` and
@@ -207,7 +211,8 @@ The repo ships a Render Blueprint (`render.yaml`).
 - **Breaking schema changes:** create a new Alembic revision
   (`alembic revision --autogenerate -m "..."`) and commit it; the next
   backend deploy applies it. Never edit the existing `0001_initial`,
-  `0002_v3_upgrades`, `0003_v4_auth`, or `0004_v4_1_auth_ux` migration after it has run
+  `0002_v3_upgrades`, `0003_v4_auth`, `0004_v4_1_auth_ux`, or
+  `0005_v4_2_admin` migration after it has run
   against a real database.
 - **`CREATE command denied ... for table 'alembic_version'` (seen
   24 Nov 2026):** the `DATABASE_URL` user lacks CREATE on the

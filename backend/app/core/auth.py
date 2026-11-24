@@ -157,14 +157,29 @@ def get_current_user(
     return user
 
 
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """FastAPI dependency: the authenticated user, only if they are an
+    admin.
+
+    401 when unauthenticated (from ``get_current_user``), 403 when
+    authenticated but not an admin. Every ``/api/admin/*`` route
+    requires this.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
 def bootstrap_admin(db: Session) -> None:
     """Create the admin user (if missing) and claim ownerless data for them.
 
     Runs once at startup when ADMIN_EMAIL and ADMIN_PASSWORD are both set
     (see main.py). Idempotent: re-running with the user already present
-    just claims any ownerless rows that appeared since. Skipped entirely
-    when TESTING, and never breaks startup — any failure (e.g. tables not
-    migrated yet) is logged as a warning and swallowed.
+    just promotes them to admin (if they are not one already) and claims
+    any ownerless rows that appeared since — so the pre-v4.2 production
+    admin account is auto-promoted on the first v4.2 boot. Skipped
+    entirely when TESTING, and never breaks startup — any failure (e.g.
+    tables not migrated yet) is logged as a warning and swallowed.
     """
     if settings.TESTING:
         return
@@ -175,10 +190,17 @@ def bootstrap_admin(db: Session) -> None:
     try:
         user = db.query(User).filter(User.email == email).first()
         if user is None:
-            user = User(email=email, password_hash=hash_password(password))
+            user = User(
+                email=email,
+                password_hash=hash_password(password),
+                is_admin=True,
+            )
             db.add(user)
             db.flush()
-            logger.info("admin bootstrap: created user email=%s", email)
+            logger.info("admin bootstrap: created admin user email=%s", email)
+        elif not user.is_admin:
+            user.is_admin = True
+            logger.info("admin bootstrap: promoted user to admin email=%s", email)
         monitors_claimed = (
             db.query(Monitor)
             .filter(Monitor.user_id.is_(None))

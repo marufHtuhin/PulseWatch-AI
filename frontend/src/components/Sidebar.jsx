@@ -1,5 +1,6 @@
 import { NavLink, Link } from 'react-router-dom'
-import { Activity, Bell, LayoutDashboard, MonitorCheck, Plus, Settings, X } from 'lucide-react'
+import { Activity, Bell, LayoutDashboard, MonitorCheck, Plus, Settings, ShieldCheck, X } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -8,7 +9,12 @@ const NAV_ITEMS = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
+// Shown only to admins — non-admins never see the Admin link.
+const ADMIN_NAV_ITEM = { to: '/admin', label: 'Admin', icon: ShieldCheck }
+
 export function Sidebar({ open, onClose }) {
+  const { user } = useAuth()
+  const navItems = user?.is_admin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS
   return (
     <>
       {/* Mobile overlay */}
@@ -37,7 +43,7 @@ export function Sidebar({ open, onClose }) {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon
             return (
               <NavLink
