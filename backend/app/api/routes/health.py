@@ -10,12 +10,14 @@ from app.scheduler.jobs import scheduler
 router = APIRouter()
 
 
-@router.get("/")
+@router.api_route("/", methods=["GET", "HEAD"])
 def root() -> dict:
     return {"status": "ok", "project": "PulseWatch AI", "version": "1.0.0"}
 
 
-@router.get("/health")
+# HEAD is allowed alongside GET: uptime checkers (e.g. UptimeRobot's free
+# plan) probe with HEAD, and a GET-only route answers them with 405.
+@router.api_route("/health", methods=["GET", "HEAD"])
 def health() -> dict:
     db_status = "ok"
     db = SessionLocal()

@@ -42,6 +42,22 @@ string of the form
    300s because TiDB closes them after 5 minutes.
 4. URL-encode special characters in the password when building
    `DATABASE_URL` (e.g. `@` → `%40`).
+5. **Use a user that can CREATE tables.** Alembic runs on every
+   Render start and needs the CREATE privilege on the `pulsewatch`
+   database. A **Database Read-Write** user can only change data
+   (SELECT/INSERT/UPDATE/DELETE) — migrations fail under it with
+   `pymysql.err.OperationalError: (1142, "CREATE command denied ...
+   for table 'alembic_version'")`. Use the **Database Admin**
+   (`role_admin`) user for `DATABASE_URL` instead. For a Starter
+   cluster, the documented way to create/repair the admin user is
+   the TiDB Cloud CLI: `ti db create-db-sql-users --db-cluster-id
+   "<cluster-id>"` (creates `admin`, `read-write` and `read-only`
+   users), then use the admin user's connection string. If your
+   cluster's console shows **Settings > SQL Users**, you can also
+   create/edit a SQL user there with Built-in Role **Database
+   Admin**. To check what the current user can do, run `SHOW
+   GRANTS;` in the TiDB console SQL Editor — look for CREATE on
+   `pulsewatch.*`.
 
 ### Option B — Railway
 
@@ -171,6 +187,15 @@ The repo ships a Render Blueprint (`render.yaml`).
   (`alembic revision --autogenerate -m "..."`) and commit it; the next
   backend deploy applies it. Never edit the existing `0001_initial` or
   `0002_v3_upgrades` migration after it has run against a real database.
+- **`CREATE command denied ... for table 'alembic_version'` (seen
+  24 Nov 2026):** the `DATABASE_URL` user lacks CREATE on the
+  database — auth, TLS and the connection itself are all fine.
+  Switch `DATABASE_URL` to the Database Admin user (see §1 step 5)
+  and redeploy on Render (Manual Deploy → Deploy latest commit, or
+  change the env var, which restarts the service). No code change
+  is needed; once the tables exist, a read-write user can run the
+  app, but every deploy re-runs Alembic, so keep the admin user in
+  `DATABASE_URL` unless you create future tables by hand.
 
 ## 6. Security notes for production
 
