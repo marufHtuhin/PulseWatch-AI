@@ -1,96 +1,90 @@
-# PulseWatch AI
+# 📡 PulseWatch AI
 
-API monitoring with anomaly detection and alerting. Add any HTTP endpoint
-as a monitor and PulseWatch checks it on a schedule, records every check,
-detects problems with 11 deterministic anomaly rules, and explains each
-incident in plain language — with optional AI explanations
-(OpenRouter by default, Gemini as a fallback), and deterministic
-fallback explanations when no AI key is configured.
+[![Live Demo](https://img.shields.io/badge/Live_Demo-10B981?style=for-the-badge&logo=vercel&logoColor=white)](https://pulsewatchai.vercel.app)
+[![CI](https://github.com/marufHtuhin/PulseWatch-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/marufHtuhin/PulseWatch-AI/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
+[![MySQL](https://img.shields.io/badge/MySQL-8-4479A1?style=flat-square&logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-No API key is required to run it. Monitoring, anomaly detection, alerting,
-and the dashboard all work with zero configuration.
+Intelligent API monitoring with anomaly detection and alerting. Add any HTTP endpoint as a monitor and PulseWatch checks it on a schedule, records every check, detects problems with 11 deterministic anomaly rules, and explains each incident in plain language — with optional AI explanations (OpenRouter by default, Gemini as a fallback), and deterministic fallback explanations when no AI key is configured.
 
-## Features
+No API key is required to run it. Monitoring, anomaly detection, alerting, and the dashboard all work with zero configuration.
 
-- **Monitors** — any HTTP/HTTPS endpoint (GET/POST/PUT/DELETE), custom
-  headers (secret values masked), request bodies, timeout, check interval
-  (30s–30min), expected status codes, expected JSON fields, zero-record
-  detection, latency threshold, and max response size.
-- **Real checks** — every check is a genuine HTTP request with timing,
-  status, size, JSON validity, and record-count metadata. Response bodies
-  are never stored.
-- **11 deterministic anomaly rules** — high response time (3 severity
-  tiers), HTTP errors, timeouts, network errors, zero records, invalid
-  JSON, missing fields, oversized responses, unexpected status,
-  historical deviation from a rolling baseline (needs ≥10 prior checks),
-  and TLS certificate expiry (3 severity tiers by days remaining).
-- **Alerts** — deduplicated per (monitor, anomaly type) while open:
-  a recurring problem bumps `occurrence_count` instead of creating new
-  alerts. Acknowledge / resolve lifecycle with a resolved-alert history.
-- **Consecutive-failure alerting** — a new alert is created only after
-  a configurable number of consecutive failed checks (1–5, default 2),
-  so a single blip does not page you. Anomalies are still recorded on
-  every failed check, dedup bumps are unaffected, and a successful check
-  resets the counter.
-- **Telegram notifications** — new alerts at or above a configurable
-  minimum severity are sent to a Telegram chat, plus a recovery message
-  when a monitor comes back up. Dedup bumps never re-notify.
-- **SSL certificate expiry monitoring** — https monitors have their TLS
-  certificate expiry checked (at most once per 24h) and alert before
-  the certificate expires.
-- **Data retention** — check history and resolved alerts are pruned
-  automatically by a daily cleanup job, with configurable retention
-  windows and a manual cleanup + preview in Settings.
-- **AI explanations** (optional, OpenRouter by default) — when
-  configured, each new alert gets an AI-written title, summary, likely
-  cause, and recommended action from metadata only (never response
-  bodies). Any AI failure falls back to deterministic templates —
-  monitoring never breaks because of AI.
-- **Concurrent batch checks** — check up to 50 monitors at once with a
-  configurable concurrency cap; partial success is built in (one bad
-  monitor never fails the batch).
-- **Scheduler** — one APScheduler interval job per active monitor;
-  create/update/toggle/delete reschedule immediately.
-- **Dashboard** — summary stats (including P50/P95/P99 latency
-  percentiles over successful checks in the last 24h), response-time
-  trend chart, per-monitor uptime/health (with per-monitor P95), and
-  alert lists, auto-refreshing every 30 seconds.
-- **SSRF protection** — DNS resolved at check time, every resolved IP
-  validated (loopback/private/link-local/reserved/multicast/metadata all
-  blocked), redirects re-validated on every hop (max 5).
-- **Settings** — persisted defaults for interval, timeout, latency
-  threshold, and batch concurrency, plus Telegram notification settings
-  and data retention windows.
-- **Authentication + multi-user** — open registration, bcrypt
-  passwords, JWT access tokens (24h). Every account sees only its
-  own monitors, alerts, dashboard data, and settings; another user's
-  objects return 404, never 403. Forgot-password via a 6-digit email
-  OTP (Brevo), change password with other-session invalidation, and
-  rate-limited auth endpoints.
-- **Admin panel** — the `ADMIN_EMAIL` account is the admin (see
-  [Admin](#admin)): platform stats, a user list with per-user
-  monitor/alert counts, activate/deactivate, hard-delete with full
-  cascade, and a read-only view of every user's monitors.
+## 🚀 Live Demo
 
-## Screenshots
+**https://pulsewatchai.vercel.app**
 
-Dashboard:
+> The demo runs on free-tier hosting, so the first load can take ~30 seconds while the Render backend wakes up. Registration is open — or use the [demo account](#-demo-account) below, no sign-up needed to try it.
 
-![Dashboard](docs/screenshots/dashboard.png)
+## 📸 Screenshots
 
-Monitors:
+| Dashboard | Monitors |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Monitors](docs/screenshots/monitors.png) |
 
-![Monitors](docs/screenshots/monitors.png)
+| Monitor detail | Alerts |
+|---|---|
+| ![Monitor detail](docs/screenshots/monitor-detail.png) | ![Alerts](docs/screenshots/alerts.png) |
 
-Monitor detail:
+| AI-generated alert | Settings |
+|---|---|
+| ![AI-generated alert explanation](docs/screenshots/alert-detail-ai.png) | ![Settings](docs/screenshots/settings.png) |
 
-![Monitor detail](docs/screenshots/monitor-detail.png)
+## 📑 Table of Contents
 
-Alerts:
+- [Features](#-features)
+- [Tech Stack](#-tech-stack)
+- [Architecture](#architecture)
+- [Anomaly Rules](#anomaly-rules)
+- [AI Integration](#ai-integration-openrouter-by-default-gemini-fallback)
+- [Telegram Notifications](#telegram-notifications)
+- [Data Retention](#data-retention)
+- [Authentication](#authentication)
+- [Admin](#admin)
+- [Demo Account](#-demo-account)
+- [Demo Script](#-demo-script)
+- [Quick Start](#-quick-start)
+- [Configuration](#-configuration)
+- [API Overview](#api-overview)
+- [Testing](#-testing)
+- [Deployment](#-deployment)
+- [Security](#-security)
+- [Limitations](#-limitations)
+- [Roadmap](#-roadmap)
+- [Team](#-team)
+- [License](#-license)
 
-![Alerts](docs/screenshots/alerts.png)
+## ✨ Features
 
-## Tech Stack
+### Monitoring
+- **Monitors** — any HTTP/HTTPS endpoint (GET/POST/PUT/DELETE), custom headers (secret values masked), request bodies, timeout, check interval (30s–30min), expected status codes, expected JSON fields, zero-record detection, latency threshold, and max response size.
+- **Real checks** — every check is a genuine HTTP request with timing, status, size, JSON validity, and record-count metadata. Response bodies are never stored.
+- **Scheduler** — one APScheduler interval job per active monitor; create/update/toggle/delete reschedule immediately.
+- **Concurrent batch checks** — check up to 50 monitors at once with a configurable concurrency cap; partial success is built in (one bad monitor never fails the batch).
+- **SSL certificate expiry monitoring** — https monitors have their TLS certificate expiry checked (at most once per 24h) and alert before the certificate expires.
+
+### Anomaly detection
+- **11 deterministic anomaly rules** — high response time (3 severity tiers), HTTP errors, timeouts, network errors, zero records, invalid JSON, missing fields, oversized responses, unexpected status, historical deviation from a rolling baseline (needs ≥10 prior checks), and TLS certificate expiry (3 severity tiers by days remaining). See [Anomaly Rules](#anomaly-rules).
+- **Consecutive-failure alerting** — a new alert is created only after a configurable number of consecutive failed checks (1–5, default 2), so a single blip does not page you. Anomalies are still recorded on every failed check, dedup bumps are unaffected, and a successful check resets the counter.
+
+### Alerts & notifications
+- **Alerts** — deduplicated per (monitor, anomaly type) while open: a recurring problem bumps `occurrence_count` instead of creating new alerts. Acknowledge / resolve lifecycle with a resolved-alert history.
+- **Telegram notifications** — new alerts at or above a configurable minimum severity are sent to a Telegram chat, plus a recovery message when a monitor comes back up. Dedup bumps never re-notify.
+- **AI explanations** (optional, OpenRouter by default) — when configured, each new alert gets an AI-written title, summary, likely cause, and recommended action from metadata only (never response bodies). Any AI failure falls back to deterministic templates — monitoring never breaks because of AI.
+
+### Dashboard & data
+- **Dashboard** — summary stats (including P50/P95/P99 latency percentiles over successful checks in the last 24h), response-time trend chart, per-monitor uptime/health (with per-monitor P95), and alert lists, auto-refreshing every 30 seconds.
+- **Data retention** — check history and resolved alerts are pruned automatically by a daily cleanup job, with configurable retention windows and a manual cleanup + preview in Settings.
+
+### Auth, admin & safety
+- **Authentication + multi-user** — open registration, bcrypt passwords, JWT access tokens (24h). Every account sees only its own monitors, alerts, dashboard data, and settings; another user's objects return 404, never 403. Forgot-password via a 6-digit email OTP (Brevo), change password with other-session invalidation, and rate-limited auth endpoints.
+- **Admin panel** — the `ADMIN_EMAIL` account is the admin (see [Admin](#admin)): platform stats, a user list with per-user monitor/alert counts, activate/deactivate, hard-delete with full cascade, and a read-only view of every user's monitors.
+- **SSRF protection** — DNS resolved at check time, every resolved IP validated (loopback/private/link-local/reserved/multicast/metadata all blocked), redirects re-validated on every hop (max 5).
+- **Settings** — persisted defaults for interval, timeout, latency threshold, and batch concurrency, plus Telegram notification settings and data retention windows.
+
+## 🛠️ Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -98,7 +92,8 @@ Alerts:
 | HTTP | httpx (async, with SSRF-safe redirect handling) |
 | Scheduler | APScheduler 3.x (AsyncIOScheduler) |
 | AI | OpenRouter (`nvidia/nemotron-3.5-lightning:free` by default, free tier) — Gemini fallback — optional |
-| Database | MySQL 8 (production) / SQLite (local dev & tests) |
+| Auth | JWT (HS256, 24h) + bcrypt, Brevo email OTP for password reset |
+| Database | MySQL 8 (production, TiDB Cloud) / SQLite (local dev & tests) |
 | Frontend | React 18, Vite 6, React Router 6, Tailwind CSS 3, Recharts, Axios |
 | Testing | pytest + pytest-asyncio + httpx MockTransport |
 | Deployment | Docker / Docker Compose, Render (backend), Vercel (frontend) |
@@ -109,8 +104,9 @@ Alerts:
 ┌──────────────┐   HTTP/JSON    ┌──────────────────────────────────┐
 │  React SPA   │ ◄────────────► │  FastAPI backend (port 8000)     │
 │  (Vite, :5173)  /api/*        │                                  │
-└──────────────┘                │  routes: monitors / monitoring / │
-                                │  alerts / dashboard / settings   │
+└──────────────┘                │  routes: auth / monitors /       │
+                                │  monitoring / alerts / dashboard │
+                                │  / settings / admin              │
                                 │                                  │
                                 │  services:                       │
                                 │   monitoring_service  (pipeline) │
@@ -208,7 +204,9 @@ findings. Each rule is a separate function in
   in `backend/.env`. Free models are rate-limited to 20 requests/min +
   50 requests/day on accounts with under $10 lifetime credits
   (1,000/day at $10+ lifetime credits). PulseWatch makes ~1 AI call per
-  new alert, so 50/day is plenty.
+  new alert, so 50/day is plenty. The live deployment has a key
+  configured — Settings shows **AI explanations: Configured
+  (OpenRouter)**, verified 25 Nov 2026.
 - **Model** is configurable via `OPENROUTER_MODEL` (default
   `nvidia/nemotron-3.5-lightning:free`, chosen for low latency). Free
   models rotate — if the default disappears, pick another `:free` model
@@ -231,7 +229,8 @@ findings. Each rule is a separate function in
   `recommended_action`). On any failure — no key, network error, quota,
   HTTP error, malformed JSON, wrong schema — the fallback template is
   used and monitoring continues. `ai_generated` on the alert tells you
-  which path produced the content.
+  which path produced the content; the alert detail page badges it
+  **AI generated** or **Template**.
 
 ## Telegram notifications
 
@@ -308,7 +307,7 @@ approval step.
   users. Both endpoints always answer the same way whether or not
   the email exists. Without `BREVO_API_KEY` + `EMAIL_FROM` the app
   still runs, but no reset email is sent (a warning is logged
-  server-side) — see [Configuration](#configuration).
+  server-side) — see [Configuration](#-configuration).
 - **Change password** — `POST /api/auth/change-password`
   (`{current_password, new_password}`, requires a token) returns a
   **fresh access token** for the current session and invalidates
@@ -330,18 +329,7 @@ approval step.
   account. Requesting another user's object by id returns **404**
   (not 403, so existence does not leak), and batch checks silently
   skip monitors the caller does not own.
-- **`SECRET_KEY` is required in production.** It signs the JWTs, and
-  the app refuses to start with `APP_ENV=production` unless it is set
-  to a real value (the dev default is rejected). Generate one with:
-
-  ```bash
-  python -c "import secrets; print(secrets.token_hex(32))"
-  ```
-
-  Set it in `backend/.env` locally (see
-  [`backend/.env.example`](backend/.env.example)) or as a Render
-  environment variable — the Blueprint prompts for it on first deploy.
-- **Admin bootstrap (upgrading a pre-v4 deployment).** Monitors and
+- **The admin bootstrap (upgrading a pre-v4 deployment).** Monitors and
   settings created before auth existed are ownerless (`user_id` NULL)
   and invisible to every account. Set both `ADMIN_EMAIL` and
   `ADMIN_PASSWORD` (Render Dashboard → Environment, or `backend/.env`)
@@ -390,6 +378,35 @@ requires an admin token (no token → 401, non-admin → 403); an admin
 deactivate or delete another admin** (400); an unknown user id is
 404. Full shapes and error codes:
 [`API_CONTRACT.md`](API_CONTRACT.md) ("Admin").
+
+## 👥 Demo Account
+
+Registration is open — anyone can create an account from the login page.
+To try it instantly, use the shared demo account:
+
+| Email | Password | Notes |
+|---|---|---|
+| test@test.com | test@1234 | Shared test account, no admin rights. Its data is separate from every other account. |
+
+> The demo account is public on purpose (like the FarmMarket demo
+> accounts). Do not store anything private in it.
+
+## 🎬 Demo Script
+
+1. **Log in** with the demo account above (or register your own).
+2. **Add a monitor** — e.g. `https://farmmarket-gdcm.onrender.com/api/health`
+   (GET, every 1 minute) — then click **Check Now** and watch the
+   dashboard fill in.
+3. **Break something on purpose** — add `https://httpbin.org/status/500`
+   with "alert after 1 failure". Within a minute you get a high
+   `HTTP_ERROR` alert; open it to see the AI-written explanation
+   (badged **AI generated**) or the deterministic template.
+4. **Slow API** — add `https://httpbin.org/delay/3` with a 1000 ms
+   latency threshold to see a `HIGH_RESPONSE_TIME` alert.
+5. **Telegram** — add your bot token + chat ID in Settings and hit
+   **Send test notification**.
+6. **Admin** — log in as the `ADMIN_EMAIL` account to see the admin
+   panel (platform stats, user list, activate/deactivate, delete).
 
 ## Database Schema
 
@@ -463,6 +480,7 @@ pulsewatch-ai/
 ├── API_CONTRACT.md            # Source of truth for endpoints & schemas
 ├── README.md                  # This file
 ├── LICENSE                    # MIT license
+├── .github/workflows/ci.yml   # GitHub Actions: pytest + frontend build
 ├── docker-compose.yml         # MySQL 8 + backend (Docker)
 ├── sample-data/
 │   └── sample-monitors.json   # 8 ready-made monitors to try out
@@ -508,11 +526,12 @@ pulsewatch-ai/
         ├── layouts/           # AppLayout (sidebar + topbar)
         ├── pages/             # Dashboard, Monitors, MonitorForm,
         │                      #   MonitorDetail, Alerts, AlertDetail,
-        │                      #   Settings, NotFound
+        │                      #   Settings, Admin, Login, Register,
+        │                      #   ForgotPassword, ResetPassword, NotFound
         └── utils/format.js    # ms / dates / bytes / uptime formatting
 ```
 
-## Quick Start
+## ⚡ Quick Start
 
 Prerequisites: **Python 3.12+**, **Node.js 18+** (for the frontend), and
 — only for the MySQL path — **Docker Desktop** or a local MySQL 8 server.
@@ -608,7 +627,7 @@ migrations automatically). Run the frontend separately with
 The backend serves the API only; the frontend is a separate dev server
 (or static build) that talks to it over `/api`.
 
-## Configuration
+## ⚙️ Configuration
 
 All backend settings live in `backend/.env` (copy from
 `backend/.env.example`). Every variable has a working default.
@@ -678,7 +697,7 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**354 tests, all passing** (last run: 24 Nov 2026), covering:
+**354 tests, all passing** (last run: 25 Nov 2026), covering:
 
 - Auth: registration (201 + token, duplicate email 400, short password
   / invalid email 422), login (success, wrong password / unknown user
@@ -704,6 +723,9 @@ pytest tests/ -v
   self or another admin, delete cascading to monitors/alerts/
   records, exact stats counts, and the all-monitors list with owner
   email + `?user_id=` filter
+- OpenRouter (v4.3): provider selection, the `models` fallback array
+  in the request body, success / 429 / bad-JSON / no-key paths, and
+  the Gemini path still passing
 - Health/root payloads; monitor CRUD + validation + filters + pagination
 - Secret-header masking (`"********"`, keep-on-update, case-insensitive)
 - All 11 anomaly rules individually (incl. severity tiers, the
@@ -758,6 +780,21 @@ on every push and pull request.
 | Alerts say `ai_generated: false` | No AI provider key is set (`OPENROUTER_API_KEY`, or `GEMINI_API_KEY` when `AI_PROVIDER=gemini`), or the AI call failed — the fallback template was used. This is expected behaviour, not an error. Set a key in `backend/.env` to enable AI explanations. |
 | Scheduler jobs not running | The scheduler only starts in the normal app lifespan. Under pytest (`PULSEWATCH_TESTING=1`) it is intentionally disabled; `/health` then reports `"scheduler": "disabled"`. |
 
+## 🚢 Deployment
+
+**Live deployment:** backend on [Render](https://render.com) (free tier,
+auto-deploys on push to `main`) + MySQL on [TiDB Cloud](https://tidbcloud.com)
+(Starter cluster) + frontend on [Vercel](https://vercel.com)
+(auto-deploys on push to `main`). Full steps:
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+- Backend: https://pulsewatch-api-fxgn.onrender.com
+- Frontend: https://pulsewatchai.vercel.app
+
+> Free-tier note: the Render backend sleeps after inactivity, so the
+> first request can take ~30 seconds. UptimeRobot pings `/health`
+> every 5 minutes to keep it warm.
+
 ## Security
 
 - **SSRF protection** — every check URL is validated at check time:
@@ -790,27 +827,22 @@ on every push and pull request.
   data (cross-user access returns 404). CORS is restricted to
   `FRONTEND_URL`.
 
-## Limitations
+## ⚠️ Limitations
 
-- **Auth is deliberately minimal (v4.1).** Registration is open, and
-  there is **no email verification, no refresh tokens, and no
+- **Auth is deliberately minimal.** Registration is open, and there is
+  **no email verification, no refresh tokens, and no
   payments/subscriptions**. Password reset (Brevo email OTP) and
   rate limiting on the auth endpoints landed in v4.1. JWTs live in
   `localStorage` (not httpOnly cookies) and expire after 24 hours,
   after which the user logs in again. These are future work
   (see Roadmap), not oversights — the current design trades them for a
   zero-dependency, free-tier-friendly deployment.
-- **MySQL was not verified in this sandbox** (no MySQL server, no
-  Docker here). The schema and migration are dialect-agnostic and the
-  code paths are identical, but the first real MySQL run should be
-  treated as a verification step.
-- **No real AI key was tested live.** The AI integration (OpenRouter +
-  Gemini fallback) is tested end-to-end with a mocked transport
-  (success + every failure mode), but no live call with a real key has
-  been made yet.
-- **Not yet deployed.** Render/Vercel deployment is documented in
-  [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) but has not been
-  performed; free-tier limits (notably Render cold starts) apply.
+- **AI explanations on the live site:** the OpenRouter key is configured
+  (Settings shows **Configured (OpenRouter)**), and live AI-generated
+  alerts are verified — a real httpbin-500 alert on 25 Nov 2026 shows
+  the **AI generated** badge with a full AI-written explanation (see
+  [Screenshots](#-screenshots)). The AI path is also tested end-to-end
+  with a mocked transport (success + every failure mode).
 - **SSRF-blocked checks produce no anomaly or alert by design.** A
   rejected URL is a configuration/policy outcome, not the API going
   down — the check is still recorded as a failed check and the monitor
@@ -831,13 +863,17 @@ on every push and pull request.
 - Uptime history charts per monitor (30-day view) and status pages.
 - Distributed scheduler locking (or a single-worker deployment note)
   for multi-replica setups.
-- Frontend tests (Vitest + Testing Library) — the backend has 343
+- Frontend tests (Vitest + Testing Library) — the backend has 354
   tests; the frontend currently has none.
 - Monitor import/export (bulk JSON) and one-click import of
   `sample-data/sample-monitors.json`.
 - Custom check assertions (JSONPath / regex on the response body).
 - Dark theme (the UI is light-only today).
 
-## License
+## 👥 Team
+
+Built by [Md. Maruf Hasan Tuhin](https://marufhtuhin.vercel.app/) ([GitHub](https://github.com/marufHtuhin)).
+
+## 📄 License
 
 MIT — see [LICENSE](LICENSE).
