@@ -31,12 +31,20 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 def _to_response(row: AppSettings) -> SettingsOut:
     token, chat_id = resolve_telegram_credentials(row)
+    # ai_configured reflects the SELECTED provider only — a key for the
+    # other provider does not count (mirrors ai_service's selection).
+    ai_configured = (
+        bool(app_settings.GEMINI_API_KEY)
+        if app_settings.AI_PROVIDER == "gemini"
+        else bool(app_settings.OPENROUTER_API_KEY)
+    )
     return SettingsOut(
         default_interval_seconds=row.default_interval_seconds,
         default_timeout_seconds=row.default_timeout_seconds,
         default_latency_threshold_ms=row.default_latency_threshold_ms,
         max_concurrency=row.max_concurrency,
-        gemini_configured=bool(app_settings.GEMINI_API_KEY),
+        ai_configured=ai_configured,
+        ai_provider=app_settings.AI_PROVIDER,
         allow_local_urls=app_settings.ALLOW_LOCAL_URLS,
         app_env=app_settings.APP_ENV,
         telegram_enabled=row.telegram_enabled,

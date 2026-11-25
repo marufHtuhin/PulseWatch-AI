@@ -1,9 +1,13 @@
-"""Gemini AI incident explanations (backend only).
+"""AI incident explanations (backend only).
 
 - Called ONLY when >=1 anomaly is detected AND a new alert is being created
   (dedup bumps never call the AI).
-- Only metadata is sent to Gemini: monitor name/method/host, status code,
-  timings, anomaly types, baseline stats. Response bodies are NEVER sent.
+- Only metadata is sent to the provider: monitor name/method/host, status
+  code, timings, anomaly types, baseline stats. Response bodies are NEVER
+  sent.
+- Provider is selected by ``AI_PROVIDER`` (``"openrouter"`` by default,
+  ``"gemini"`` as the fallback provider). The selected provider's key must
+  be configured or the fallback template is used.
 - Output is strict JSON validated by Pydantic. On ANY failure (no key,
   network, quota, bad JSON) a deterministic fallback template is used, so
   monitoring never fails because of AI.
@@ -25,6 +29,13 @@ from app.services.http_client import build_async_client
 logger = get_logger("ai")
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+# OpenRouter asks for the app's URL + name on every request (used for
+# attribution in their dashboard, not for auth).
+OPENROUTER_REFERER = "https://pulsewatchai.vercel.app"
+OPENROUTER_TITLE = "PulseWatch"
+# Display names used in log lines, mirroring the old "Gemini ..." wording.
+_PROVIDER_DISPLAY = {"gemini": "Gemini", "openrouter": "OpenRouter"}
 SEVERITIES = ("info", "warning", "high", "critical")
 
 
@@ -235,46 +246,103 @@ async def generate_alert_content(
     metrics: dict,
     client_factory: Callable[[], httpx.AsyncClient] | None = None,
 ) -> tuple[AIAlertContent, bool]:
-    """Generate alert content via Gemini, or a deterministic fallback.
+    """Generate alert content via the configured AI provider, or a fallback.
 
-    Returns ``(content, ai_generated)``. Never raises: any failure falls back
+    Provider is ``settings.AI_PROVIDER`` (``"openrouter"`` by default,
+    ``"gemini"`` as the fallback provider). Returns
+    ``(content, ai_generated)``. Never raises: any failure falls back
     to the template for the anomaly type.
     """
-    api_key = settings.GEMINI_API_KEY
+    # Anything that is not "gemini" is treated as the default provider
+    # ("openrouter"), so a typo'd value degrades to the default rather
+    # than silently disabling AI.
+    provider = "gemini" if settings.AI_PROVIDER == "gemini" else "openrouter"
+    display = _PROVIDER_DISPLAY[provider]
+    if provider == "gemini":
+        api_key = settings.GEMINI_API_KEY
+        provider_url = f"{GEMINI_API_BASE}/{settings.GEMINI_MODEL}:generateContent"
+    else:
+        api_key = settings.OPENROUTER_API_KEY
+        provider_url = OPENROUTER_API_URL
     if not api_key:
         return fallback_content(monitor.name, finding), False
     try:
-        gemini_url = f"{GEMINI_API_BASE}/{settings.GEMINI_MODEL}:generateContent"
         client = (
             client_factory()
             if client_factory
-            else build_async_client(gemini_url, timeout=30.0)
+            else build_async_client(provider_url, timeout=30.0)
         )
         try:
-            url = gemini_url
-            payload = {
-                "contents": [{"parts": [{"text": build_prompt(monitor, finding, metrics)}]}],
-                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
-            }
-            response = await client.post(
-                url, json=payload, headers={"x-goog-api-key": api_key}
-            )
+            prompt = build_prompt(monitor, finding, metrics)
+            if provider == "gemini":
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "temperature": 0.2,
+                    },
+                }
+                headers = {"x-goog-api-key": api_key}
+            else:
+                # Server-side fallback routing: OpenRouter tries the
+                # `models` list in priority order and automatically moves
+                # to the next model if one errors, so no client retry is
+                # needed. `model` is still required by chat completions.
+                # Dedupe keeping first occurrence (primary wins if it is
+                # also listed as a fallback).
+                models = list(
+                    dict.fromkeys(
+                        [settings.OPENROUTER_MODEL, *settings.openrouter_fallback_models]
+                    )
+                )
+                payload = {
+                    "model": settings.OPENROUTER_MODEL,
+                    "models": models,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.2,
+                }
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "HTTP-Referer": OPENROUTER_REFERER,
+                    "X-Title": OPENROUTER_TITLE,
+                }
+            response = await client.post(provider_url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            if provider == "gemini":
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                text = data["choices"][0]["message"]["content"]
             content = AIAlertContent.model_validate(json.loads(text))
             logger.info(
-                "Gemini alert content generated monitor_id=%s anomaly=%s",
+                "%s alert content generated monitor_id=%s anomaly=%s",
+                display,
                 monitor.id,
                 finding.anomaly_type,
             )
             return content, True
         finally:
             await client.aclose()
-    except Exception as exc:  # noqa: BLE001 - any Gemini failure falls back
+    except Exception as exc:  # noqa: BLE001 - any provider failure falls back
+        # Log the HTTP status + provider error body when available: the
+        # exception type alone (e.g. HTTPStatusError) cannot distinguish
+        # a bad key (400) from a missing model (404) or quota (429), and
+        # that distinction is what the operator needs to fix it. The
+        # response body never contains the API key.
+        detail = type(exc).__name__
+        if isinstance(exc, httpx.HTTPStatusError):
+            try:
+                detail = (
+                    f"{type(exc).__name__} status={exc.response.status_code} "
+                    f"body={exc.response.text[:300]!r}"
+                )
+            except Exception:  # noqa: BLE001 - keep the type-only fallback
+                pass
         logger.warning(
-            "Gemini call failed (%s); using fallback template monitor_id=%s anomaly=%s",
-            type(exc).__name__,
+            "%s call failed (%s); using fallback template monitor_id=%s anomaly=%s",
+            display,
+            detail,
             monitor.id,
             finding.anomaly_type,
         )

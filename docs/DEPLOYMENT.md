@@ -130,7 +130,11 @@ The repo ships a Render Blueprint (`render.yaml`).
    | `FRONTEND_URL` | Your Vercel URL, e.g. `https://pulsewatchai.vercel.app` (comma-separated if several; a trailing `/` is tolerated) |
    | `APP_ENV` | `production` |
    | `LOG_LEVEL` | `INFO` |
-   | `GEMINI_API_KEY` | (optional) your Gemini key, or leave unset for fallback templates |
+   | `AI_PROVIDER` | `openrouter` (default) or `gemini` — which AI provider explains new alerts |
+   | `OPENROUTER_API_KEY` | (optional) your OpenRouter key — free at openrouter.ai, no credit card needed for free models; leave unset for fallback templates |
+   | `OPENROUTER_MODEL` | `nvidia/nemotron-3.5-lightning:free` (chosen for low latency; free models rotate — pick another `:free` model if this one disappears; changing it needs no code change, just an env var edit + restart) |
+   | `OPENROUTER_FALLBACK_MODELS` | `google/gemma-4-26b-a4b-it:free` (comma-separated; sent as OpenRouter's `models` array — tried in order if the primary is down or rate-limited; keep only `:free` models to stay free) |
+   | `GEMINI_API_KEY` | (optional) only used when `AI_PROVIDER=gemini`; your Gemini key |
    | `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
    | `BREVO_API_KEY` | (optional) Brevo API key for forgot-password emails. The same Brevo account/key as FarmMarket works. Without it (or without `EMAIL_FROM`) the app still runs, but no reset email is sent — the forgot-password endpoint still returns its generic 200. |
    | `EMAIL_FROM` | (optional) Sender address for forgot-password emails. **Must be a sender address verified in the Brevo account** (a verified Gmail address works — no domain needed) or sends fail. |
@@ -148,6 +152,31 @@ The repo ships a Render Blueprint (`render.yaml`).
 6. Verify: `https://<your-service>.onrender.com/health` should return
    `{"status": "ok", "db": "ok", "scheduler": "running"}` and
    `https://<your-service>.onrender.com/docs` should show the API docs.
+
+### AI explanations — OpenRouter setup
+
+AI incident explanations are optional; without a key, alerts use
+deterministic fallback templates.
+
+1. Sign up at [openrouter.ai](https://openrouter.ai) and create a key
+   on the **Keys** page (no credit card needed for free models).
+2. Set `OPENROUTER_API_KEY` in the Render service's environment
+   variables (Dashboard → Environment). Redeploy / restart picks it up.
+3. Free-model limits: 20 requests/min + 50 requests/day on accounts
+   with under $10 lifetime credits (1,000/day at $10+). PulseWatch
+   makes ~1 AI call per new alert, so 50/day is plenty.
+4. To change models, set `OPENROUTER_MODEL` (default
+   `nvidia/nemotron-3.5-lightning:free`, chosen for low latency). Free
+   models rotate — if the default disappears, pick another `:free`
+   model or `openrouter/free`. Changing the model needs no code
+   change — just edit the env var and restart. Fallback models come
+   from `OPENROUTER_FALLBACK_MODELS` (comma-separated, default
+   `google/gemma-4-26b-a4b-it:free`): OpenRouter tries them in order
+   if the primary is down or rate-limited — keep only `:free` models
+   in the list to stay free.
+5. To switch back to Gemini instead, set `AI_PROVIDER=gemini` plus
+   `GEMINI_API_KEY` (free key at Google AI Studio) and optionally
+   `GEMINI_MODEL` (default `gemini-3.5-flash-lite`).
 
 ### Render free-tier limits (honest)
 
@@ -227,8 +256,8 @@ The repo ships a Render Blueprint (`render.yaml`).
 ## 6. Security notes for production
 
 - `ALLOW_LOCAL_URLS` must stay `false`.
-- Keep `GEMINI_API_KEY` in Render's environment variables, never in
-  the repo.
+- Keep `OPENROUTER_API_KEY` (and `GEMINI_API_KEY`, if used) in Render's
+  environment variables, never in the repo.
 - **Authentication is on, and registration is open.** Anyone who finds
   the frontend URL can create an account and use the app (each account
   sees only its own data). That is the intended v4 behaviour — but be

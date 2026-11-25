@@ -29,6 +29,21 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str | None = None
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    # AI incident explanations: "openrouter" (default) or "gemini". The
+    # selected provider's key must be set or alerts use the fallback template.
+    AI_PROVIDER: str = "openrouter"
+    OPENROUTER_API_KEY: str | None = None
+    # Free models rotate — if the default disappears, set this to another
+    # `:free` model or `openrouter/free` (OpenRouter's free router).
+    OPENROUTER_MODEL: str = "nvidia/nemotron-3.5-lightning:free"
+    # Fallback models (comma-separated), tried in priority order AFTER the
+    # primary: if the primary returns an error (rate-limit, downtime,
+    # moderation, context length), OpenRouter automatically tries the next
+    # model in the list — see
+    # https://openrouter.ai/docs/guides/routing/model-fallbacks. Pricing
+    # follows the model ultimately used, so keep only `:free` models here
+    # to keep requests free.
+    OPENROUTER_FALLBACK_MODELS: str = "google/gemma-4-26b-a4b-it:free"
     # Telegram notifications: env fallback for the credentials. A value
     # persisted in AppSettings (via the settings API) wins over env.
     TELEGRAM_BOT_TOKEN: str | None = None
@@ -53,6 +68,23 @@ class Settings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("PULSEWATCH_TESTING", "TESTING"),
     )
+
+    @field_validator(
+        "GEMINI_API_KEY", "OPENROUTER_API_KEY", "BREVO_API_KEY", "TELEGRAM_BOT_TOKEN",
+        mode="before",
+    )
+    @classmethod
+    def _strip_pasted_secrets(cls, value: object) -> object:
+        """Strip copy-paste whitespace from pasted API keys/tokens.
+
+        A trailing newline or space pasted into a Render env var makes
+        the key invalid at the provider (400 "API key not valid") while
+        `ai_configured`-style checks still report true — a confusing
+        failure. Stripping here removes that whole class of bug."""
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
@@ -88,6 +120,16 @@ class Settings(BaseSettings):
                 "\"import secrets; print(secrets.token_hex(32))\""
             )
         return self
+
+    @property
+    def openrouter_fallback_models(self) -> list[str]:
+        """OPENROUTER_FALLBACK_MODELS parsed as a list (comma-separated,
+        whitespace stripped, empties dropped)."""
+        return [
+            m.strip()
+            for m in self.OPENROUTER_FALLBACK_MODELS.split(",")
+            if m.strip()
+        ]
 
     @property
     def cors_origins(self) -> list[str]:

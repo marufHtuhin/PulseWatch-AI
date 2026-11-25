@@ -11,7 +11,11 @@ class SettingsOut(BaseModel):
     default_timeout_seconds: int
     default_latency_threshold_ms: int
     max_concurrency: int
-    gemini_configured: bool
+    # True when the SELECTED AI provider (see ai_provider) has a key
+    # configured. The key itself is never returned in any response.
+    ai_configured: bool
+    # "openrouter" (default) or "gemini" — from the AI_PROVIDER env var.
+    ai_provider: str
     allow_local_urls: bool
     app_env: str
     telegram_enabled: bool
@@ -28,8 +32,8 @@ class SettingsOut(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    """Any subset of the mutable defaults. gemini_configured / app_env are
-    read-only (they come from env config).
+    """Any subset of the mutable defaults. ai_configured / ai_provider /
+    app_env are read-only (they come from env config).
 
     telegram_bot_token: send "********" to keep the stored value (same
     pattern as monitor secret headers), null to clear it (env fallback

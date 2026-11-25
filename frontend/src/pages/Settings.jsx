@@ -623,12 +623,12 @@ export function Settings() {
             <h2 className="mb-4 text-sm font-semibold text-zinc-900">Server status</h2>
             <dl className="space-y-4 text-sm">
               <div className="flex items-start justify-between gap-3">
-                <dt className="shrink-0 whitespace-nowrap text-zinc-500">Gemini AI</dt>
+                <dt className="shrink-0 whitespace-nowrap text-zinc-500">AI explanations</dt>
                 <dd className="text-right">
-                  {s.gemini_configured ? (
+                  {s.ai_configured ? (
                     <span className="inline-flex items-center gap-1.5 font-medium text-green-600">
                       <CheckCircle2 className="h-4 w-4" />
-                      Configured
+                      Configured ({s.ai_provider === 'gemini' ? 'Gemini' : 'OpenRouter'})
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
@@ -637,9 +637,9 @@ export function Settings() {
                     </span>
                   )}
                   <span className="mt-0.5 block text-[11px] text-zinc-400">
-                    {s.gemini_configured
+                    {s.ai_configured
                       ? 'Alerts include AI-generated explanations.'
-                      : 'Alerts use deterministic templates until a Gemini key is set.'}
+                      : 'Alerts use deterministic templates until an AI provider key is set.'}
                   </span>
                 </dd>
               </div>

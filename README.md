@@ -3,8 +3,9 @@
 API monitoring with anomaly detection and alerting. Add any HTTP endpoint
 as a monitor and PulseWatch checks it on a schedule, records every check,
 detects problems with 11 deterministic anomaly rules, and explains each
-incident in plain language — with optional Gemini AI explanations, and
-deterministic fallback explanations when no AI key is configured.
+incident in plain language — with optional AI explanations
+(OpenRouter by default, Gemini as a fallback), and deterministic
+fallback explanations when no AI key is configured.
 
 No API key is required to run it. Monitoring, anomaly detection, alerting,
 and the dashboard all work with zero configuration.
@@ -40,10 +41,11 @@ and the dashboard all work with zero configuration.
 - **Data retention** — check history and resolved alerts are pruned
   automatically by a daily cleanup job, with configurable retention
   windows and a manual cleanup + preview in Settings.
-- **Gemini AI explanations** (optional) — when configured, each new alert
-  gets an AI-written title, summary, likely cause, and recommended action
-  from metadata only (never response bodies). Any Gemini failure falls
-  back to deterministic templates — monitoring never breaks because of AI.
+- **AI explanations** (optional, OpenRouter by default) — when
+  configured, each new alert gets an AI-written title, summary, likely
+  cause, and recommended action from metadata only (never response
+  bodies). Any AI failure falls back to deterministic templates —
+  monitoring never breaks because of AI.
 - **Concurrent batch checks** — check up to 50 monitors at once with a
   configurable concurrency cap; partial success is built in (one bad
   monitor never fails the batch).
@@ -95,7 +97,7 @@ Alerts:
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2.x, Alembic, Pydantic v2 |
 | HTTP | httpx (async, with SSRF-safe redirect handling) |
 | Scheduler | APScheduler 3.x (AsyncIOScheduler) |
-| AI | Google Gemini (`gemini-3.5-flash-lite` by default) — optional |
+| AI | OpenRouter (`nvidia/nemotron-3.5-lightning:free` by default, free tier) — Gemini fallback — optional |
 | Database | MySQL 8 (production) / SQLite (local dev & tests) |
 | Frontend | React 18, Vite 6, React Router 6, Tailwind CSS 3, Recharts, Axios |
 | Testing | pytest + pytest-asyncio + httpx MockTransport |
@@ -116,8 +118,8 @@ Alerts:
                                 │                        real HTTP) │
                                 │   anomaly_service     (11 rules) │
                                 │   alert_service       (dedup)    │
-                                │   ai_service          (Gemini +  │
-                                │                        fallback)  │
+                                │   ai_service          (OpenRouter│
+                                │                        + Gemini)  │
                                 │   dashboard_service   (aggreg.,  │
                                 │                        percentiles)│
                                 │   notification_service (Telegram)│
@@ -156,7 +158,7 @@ Alerts:
    `Anomaly` row.
 7. Per anomaly: if an open alert already exists for (monitor, type), its
    `occurrence_count` is bumped; otherwise a new alert is created —
-   Gemini content when configured, deterministic template otherwise.
+   AI content when configured, deterministic template otherwise.
    On a failed check, a new alert is created only once the monitor's
    consecutive-failure threshold (`alert_after_failures`, default 2)
    is reached; dedup bumps and alerts on successful checks are not
@@ -196,24 +198,40 @@ All rules are deterministic: the same check input always yields the same
 findings. Each rule is a separate function in
 `backend/app/services/anomaly_service.py` and is unit-tested individually.
 
-## AI Integration (Gemini)
+## AI Integration (OpenRouter by default, Gemini fallback)
 
-- **Optional.** Without `GEMINI_API_KEY`, alerts use deterministic
+- **Optional.** Without `OPENROUTER_API_KEY`, alerts use deterministic
   fallback templates — one per anomaly type — and everything works.
-- **Model** is configurable via `GEMINI_MODEL` (default
-  `gemini-3.5-flash-lite`).
+- **Default provider is OpenRouter.** Sign up at
+  [openrouter.ai](https://openrouter.ai), create a key on the Keys page
+  (no credit card needed for free models), and set `OPENROUTER_API_KEY`
+  in `backend/.env`. Free models are rate-limited to 20 requests/min +
+  50 requests/day on accounts with under $10 lifetime credits
+  (1,000/day at $10+ lifetime credits). PulseWatch makes ~1 AI call per
+  new alert, so 50/day is plenty.
+- **Model** is configurable via `OPENROUTER_MODEL` (default
+  `nvidia/nemotron-3.5-lightning:free`, chosen for low latency). Free
+  models rotate — if the default disappears, pick another `:free` model
+  or `openrouter/free`. Changing the model needs no code change — just
+  edit the env var on Render (or `backend/.env` locally) and restart.
+- **Fallback models:** `OPENROUTER_FALLBACK_MODELS` (comma-separated,
+  default `google/gemma-4-26b-a4b-it:free`) is sent to OpenRouter as
+  the `models` array, so if the primary model is down or rate-limited
+  OpenRouter automatically tries the next one. Keep only `:free`
+  models in the list to stay free.
+- **Gemini fallback:** set `AI_PROVIDER=gemini` plus `GEMINI_API_KEY`
+  (free key at [Google AI Studio](https://aistudio.google.com/));
+  model via `GEMINI_MODEL` (default `gemini-3.5-flash-lite`).
 - **Called only when a new alert is created** (dedup bumps never call
   the AI), and only with **metadata**: monitor name/method/host, status
   code, timings, anomaly type, and baseline stats. Response bodies are
-  never sent to Gemini.
+  never sent to the AI provider.
 - **Output is strict JSON** validated by Pydantic
   (`title`, `severity`, `summary`, `possible_cause`,
   `recommended_action`). On any failure — no key, network error, quota,
   HTTP error, malformed JSON, wrong schema — the fallback template is
   used and monitoring continues. `ai_generated` on the alert tells you
   which path produced the content.
-- Get a free key at [Google AI Studio](https://aistudio.google.com/)
-  and set `GEMINI_API_KEY` in `backend/.env`.
 
 ## Telegram notifications
 
@@ -461,7 +479,7 @@ pulsewatch-ai/
 │   │                           #   0003_v4_auth, 0004_v4_1_auth_ux,
 │   │                           #   0005_v4_2_admin)
 │   ├── pytest.ini
-│   ├── tests/                 # pytest suite (343 tests)
+│   ├── tests/                 # pytest suite (354 tests)
 │   └── app/
 │       ├── main.py            # FastAPI app + lifespan (scheduler start)
 │       ├── api/routes/        # health, auth, monitors, monitoring, alerts,
@@ -601,8 +619,12 @@ All backend settings live in `backend/.env` (copy from
 | `SECRET_KEY` | `dev-secret-change-me` | **Required in production** (`APP_ENV=production` refuses to start without a real value). Signs the JWTs. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | _(empty)_ | Optional. When **both** are set, startup creates that admin account (if missing) and assigns all ownerless pre-v4 monitors + one ownerless settings row to it. See [Authentication](#authentication). |
 | `BREVO_API_KEY` / `EMAIL_FROM` | _(empty)_ | Optional. Brevo credentials for forgot-password emails (the 6-digit reset code). `EMAIL_FROM` **must be a sender address verified in the Brevo account** or sends fail. Without both, the app still runs but no reset email is sent (a warning is logged server-side). |
-| `GEMINI_API_KEY` | _(empty)_ | Optional. Without it, alerts use deterministic fallback templates. |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model for AI incident explanations. |
+| `AI_PROVIDER` | `openrouter` | AI provider for incident explanations: `openrouter` (default) or `gemini`. |
+| `OPENROUTER_API_KEY` | _(empty)_ | Optional. Without it (and without a Gemini key when `AI_PROVIDER=gemini`), alerts use deterministic fallback templates. Free key at openrouter.ai — no credit card needed for free models. |
+| `OPENROUTER_MODEL` | `nvidia/nemotron-3.5-lightning:free` | OpenRouter model for AI incident explanations (chosen for low latency). Free models rotate — pick another `:free` model if this one disappears. Changing it needs no code change — just edit the env var and restart. |
+| `OPENROUTER_FALLBACK_MODELS` | `google/gemma-4-26b-a4b-it:free` | Comma-separated fallback models, sent as OpenRouter's `models` array — tried in order if the primary is down or rate-limited. Keep only `:free` models to stay free. |
+| `GEMINI_API_KEY` | _(empty)_ | Optional. Only used when `AI_PROVIDER=gemini`. |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model for AI incident explanations (only when `AI_PROVIDER=gemini`). |
 | `TELEGRAM_BOT_TOKEN` | _(empty)_ | Optional fallback for Telegram notifications. A token saved in Settings wins over this. |
 | `TELEGRAM_CHAT_ID` | _(empty)_ | Optional fallback for Telegram notifications. A chat ID saved in Settings wins over this. |
 | `FRONTEND_URL` | `http://localhost:5173` | CORS origins, comma-separated. |
@@ -648,7 +670,7 @@ duplicate. Resolve it, check again, and a fresh alert appears.
 
 Backend tests use pytest + pytest-asyncio, run against a throwaway
 SQLite database, and mock the network with httpx `MockTransport`
-(no live API calls, no Gemini key needed). One test performs a real
+(no live API calls, no AI key needed). One test performs a real
 check against a local test HTTP server.
 
 ```powershell
@@ -656,7 +678,7 @@ check against a local test HTTP server.
 pytest tests/ -v
 ```
 
-**343 tests, all passing** (last run: 24 Nov 2026), covering:
+**354 tests, all passing** (last run: 24 Nov 2026), covering:
 
 - Auth: registration (201 + token, duplicate email 400, short password
   / invalid email 422), login (success, wrong password / unknown user
@@ -703,7 +725,7 @@ pytest tests/ -v
   only) in the dashboard summary and per-monitor health
 - Retention cleanup: record/anomaly/alert deletion, preview without
   deletion, active alerts never deleted
-- Gemini success + all failure modes (HTTP 400, malformed JSON, wrong
+- AI explanation success + all failure modes (HTTP 400, malformed JSON, wrong
   schema, connect error, no key) falling back deterministically
 - Batch partial success + a concurrency demonstration (5 × 0.3s checks
   finish well under 1.5s; `max_concurrency=1` takes the sequential ~0.6s)
@@ -733,7 +755,7 @@ on every push and pull request.
 | `npm run dev` fails with missing modules | Run `npm install` in `frontend/` first. Requires Node.js 18+. |
 | `pip install -r requirements.txt` fails on Windows | Make sure you use Python 3.12 (`py -3.12 -m venv`) and have a recent pip (`python -m pip install --upgrade pip`). |
 | Docker Compose: backend exits, `db` unhealthy | Wait for MySQL to finish first-time init (can take ~30s), then `docker compose up` again. Check `docker compose logs db`. |
-| Alerts say `ai_generated: false` | No `GEMINI_API_KEY` is set, or the Gemini call failed — the fallback template was used. This is expected behaviour, not an error. Set a key in `backend/.env` to enable AI explanations. |
+| Alerts say `ai_generated: false` | No AI provider key is set (`OPENROUTER_API_KEY`, or `GEMINI_API_KEY` when `AI_PROVIDER=gemini`), or the AI call failed — the fallback template was used. This is expected behaviour, not an error. Set a key in `backend/.env` to enable AI explanations. |
 | Scheduler jobs not running | The scheduler only starts in the normal app lifespan. Under pytest (`PULSEWATCH_TESTING=1`) it is intentionally disabled; `/health` then reports `"scheduler": "disabled"`. |
 
 ## Security
@@ -749,10 +771,11 @@ on every push and pull request.
   `Api-Key`, `Cookie`, `X-Auth-Token`) are stored in the DB but the API
   only ever returns `"********"`; sending `"********"` on update keeps
   the stored value. URLs in logs are sanitized (no query string,
-  fragment, or userinfo). The Gemini API key lives only in `.env`
-  (never committed — `.env.example` is the template) and is sent only
-  to Google's Generative Language API.
-- **Response bodies are never stored** and never sent to Gemini — only
+  fragment, or userinfo). AI provider keys live only in `.env`
+  (never committed — `.env.example` is the template) and are sent only
+  to the configured provider (OpenRouter, or Google's Generative
+  Language API when `AI_PROVIDER=gemini`).
+- **Response bodies are never stored** and never sent to the AI provider — only
   metadata (status, timings, sizes, anomaly types, baselines).
 - **Authentication** — bcrypt password hashes (never stored or returned
   as plaintext), JWT access tokens (HS256, 24h) signed with `SECRET_KEY`
@@ -781,9 +804,10 @@ on every push and pull request.
   Docker here). The schema and migration are dialect-agnostic and the
   code paths are identical, but the first real MySQL run should be
   treated as a verification step.
-- **No real Gemini key was tested live.** The Gemini integration is
-  tested end-to-end with a mocked transport (success + every failure
-  mode), but no live call with a real key has been made yet.
+- **No real AI key was tested live.** The AI integration (OpenRouter +
+  Gemini fallback) is tested end-to-end with a mocked transport
+  (success + every failure mode), but no live call with a real key has
+  been made yet.
 - **Not yet deployed.** Render/Vercel deployment is documented in
   [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) but has not been
   performed; free-tier limits (notably Render cold starts) apply.
