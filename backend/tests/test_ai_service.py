@@ -44,6 +44,9 @@ def _ai_payload(**overrides) -> str:
 
 @pytest.fixture()
 def with_gemini_key(monkeypatch):
+    # v4.3 default provider is openrouter: route these tests to Gemini
+    # explicitly or the key below would never be used.
+    monkeypatch.setattr(settings, "AI_PROVIDER", "gemini")
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key-for-tests")
     return settings
 
@@ -83,7 +86,7 @@ async def test_no_api_key_uses_fallback_without_network(
     )
 
     assert ai_generated is False
-    assert calls["n"] == 0  # no key -> Gemini is never contacted
+    assert calls["n"] == 0  # no key -> no AI provider is ever contacted
     assert content.title == "High response time on Test API"
     assert content.severity == "high"
 

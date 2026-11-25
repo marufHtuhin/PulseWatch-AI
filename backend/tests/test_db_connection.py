@@ -82,6 +82,24 @@ def test_sqlite_url_left_untouched_and_whitespace_stripped():
     )
 
 
+def test_pasted_api_keys_are_stripped():
+    """A trailing newline pasted into a Render env var must not
+    invalidate the key (Gemini returns 400 'API key not valid' while
+    gemini_configured still reports true — production incident
+    25 Nov 2026, new alerts showed Template despite a set key)."""
+    from app.core.config import Settings
+
+    s = Settings(
+        GEMINI_API_KEY="  AIza-test-key\n",
+        BREVO_API_KEY="\txkeysib-test\r\n",
+        TELEGRAM_BOT_TOKEN="  123:abc \n",
+    )
+    assert s.GEMINI_API_KEY == "AIza-test-key"
+    assert s.BREVO_API_KEY == "xkeysib-test"
+    assert s.TELEGRAM_BOT_TOKEN == "123:abc"
+    assert Settings(GEMINI_API_KEY="   ").GEMINI_API_KEY is None
+
+
 def test_cors_origins_strip_trailing_slash():
     """Browsers send the origin without a trailing slash, so a pasted
     FRONTEND_URL ending in '/' must still match."""

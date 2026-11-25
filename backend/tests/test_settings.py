@@ -13,7 +13,8 @@ def test_get_settings_returns_defaults(client):
     assert body["default_timeout_seconds"] == 10
     assert body["default_latency_threshold_ms"] == 3000
     assert body["max_concurrency"] == 10
-    assert body["gemini_configured"] is False  # no key in tests
+    assert body["ai_configured"] is False  # no key in tests
+    assert body["ai_provider"] == "openrouter"  # default provider
     assert body["allow_local_urls"] is False
     assert body["app_env"] == "development"
 
@@ -66,14 +67,43 @@ def test_put_validates_ranges(client):
 def test_put_ignores_read_only_fields(client):
     response = client.put(
         "/api/settings",
-        json={"gemini_configured": True, "app_env": "production"},
+        json={
+            "ai_configured": True,
+            "ai_provider": "gemini",
+            "app_env": "production",
+        },
     )
     assert response.status_code == 200
     # Read-only fields come from env config, not the request body.
-    assert response.json()["gemini_configured"] is False
+    assert response.json()["ai_configured"] is False
+    assert response.json()["ai_provider"] == "openrouter"
     assert response.json()["app_env"] == "development"
 
 
-def test_gemini_configured_reflects_env_key(client, monkeypatch):
+def test_ai_configured_reflects_openrouter_key(client, monkeypatch):
+    monkeypatch.setattr(app_settings, "OPENROUTER_API_KEY", "some-key")
+    body = client.get("/api/settings").json()
+    assert body["ai_configured"] is True
+    assert body["ai_provider"] == "openrouter"
+
+
+def test_ai_configured_reflects_gemini_key_when_provider_is_gemini(
+    client, monkeypatch
+):
+    monkeypatch.setattr(app_settings, "AI_PROVIDER", "gemini")
     monkeypatch.setattr(app_settings, "GEMINI_API_KEY", "some-key")
-    assert client.get("/api/settings").json()["gemini_configured"] is True
+    body = client.get("/api/settings").json()
+    assert body["ai_configured"] is True
+    assert body["ai_provider"] == "gemini"
+
+
+def test_ai_configured_false_when_selected_provider_has_no_key(
+    client, monkeypatch
+):
+    # Only the SELECTED provider's key counts: an OpenRouter key does not
+    # configure AI when the provider is gemini.
+    monkeypatch.setattr(app_settings, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(app_settings, "OPENROUTER_API_KEY", "some-key")
+    body = client.get("/api/settings").json()
+    assert body["ai_configured"] is False
+    assert body["ai_provider"] == "gemini"

@@ -247,8 +247,9 @@ Alert object:
 - `GET /api/dashboard/health` — returns `{ "monitors": [ { "monitor_id": 1, "name": "...", "status": "up|down|unknown", "uptime_pct": 99.2, "avg_response_time_ms": 210.0, "p95_response_time_ms": 480.3, "last_status_code": 200, "last_checked_at": "...", "active_alerts": 1 } ] }`. `p95_response_time_ms` is the p95 over that monitor's successful checks in the last 24h (`null` when there is no data).
 
 ## Settings (extra, for the Settings page)
-- `GET /api/settings` -> `{ "default_interval_seconds": 300, "default_timeout_seconds": 10, "default_latency_threshold_ms": 3000, "max_concurrency": 10, "gemini_configured": false, "allow_local_urls": false, "app_env": "development", "telegram_enabled": false, "telegram_min_severity": "high", "telegram_configured": false, "retention_days": 90, "alert_retention_days": 365 }`
-- `PUT /api/settings` — body: any subset of the mutable fields. `gemini_configured` / `app_env` are read-only (they come from env config). Settings are **per-user**: each account has its own row (keyed by `user_id`), so Telegram credentials and retention windows never leak between users.
+- `GET /api/settings` -> `{ "default_interval_seconds": 300, "default_timeout_seconds": 10, "default_latency_threshold_ms": 3000, "max_concurrency": 10, "ai_configured": false, "ai_provider": "openrouter", "allow_local_urls": false, "app_env": "development", "telegram_enabled": false, "telegram_min_severity": "high", "telegram_configured": false, "retention_days": 90, "alert_retention_days": 365 }`
+- `PUT /api/settings` — body: any subset of the mutable fields. `ai_configured` / `ai_provider` / `app_env` are read-only (they come from env config). Settings are **per-user**: each account has its own row (keyed by `user_id`), so Telegram credentials and retention windows never leak between users.
+  - `ai_configured` (bool, read-only): true when the configured AI provider's key is set (`OPENROUTER_API_KEY` by default, `GEMINI_API_KEY` when `AI_PROVIDER=gemini`). `ai_provider` (string, read-only): `"openrouter"` (default) or `"gemini"`.
   - `telegram_enabled` (bool, default false), `telegram_min_severity` (`warning | high | critical`, default `high`).
   - `telegram_configured` (bool, read-only): true when a bot token AND a chat id are available, from the DB or from env (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`). **The token itself is never returned by any response.**
   - `telegram_bot_token` / `telegram_chat_id` (write-only via PUT): send `"********"` for the token to keep the stored value, `null` to clear it (env fallback then applies), or a new value to replace it. DB values win over env vars; env vars are the fallback.
@@ -270,11 +271,12 @@ Alert object:
 - Resolve DNS at check time and validate ALL resolved IPs; re-validate after redirects (httpx follow_redirects with a custom check, or manual redirect loop, max 5 redirects).
 - Dev-only override: env `ALLOW_LOCAL_URLS=true` permits loopback/private (never in production; log a warning at startup when enabled).
 
-## Gemini AI (backend only)
-- Model from env `GEMINI_MODEL` (default `gemini-3.5-flash-lite`). API key from `GEMINI_API_KEY` (optional; app works fully without it).
+## AI explanations (backend only)
+- Default provider is OpenRouter: model from env `OPENROUTER_MODEL` (default `nvidia/nemotron-3.5-lightning:free`), API key from `OPENROUTER_API_KEY` (optional; app works fully without it). Fallback models from env `OPENROUTER_FALLBACK_MODELS` (comma-separated, default `google/gemma-4-26b-a4b-it:free`) are sent as the `models` array — OpenRouter tries them in order if the primary is down or rate-limited. Free models need no credit card and are rate-limited to 20 req/min + 50 req/day (under $10 lifetime credits) / 1,000 req/day ($10+ lifetime credits).
+- Provider is selected by env `AI_PROVIDER` (`openrouter` default, `gemini` fallback). Gemini uses `GEMINI_API_KEY` and `GEMINI_MODEL` (default `gemini-3.5-flash-lite`).
 - Called ONLY when >=1 anomaly is detected for a check. Structured JSON output validated by Pydantic: `{title, severity, summary, possible_cause, recommended_action}`.
-- On any Gemini failure (no key, network, quota, invalid JSON): create a deterministic fallback alert from templates. Monitoring never fails because of AI.
-- Never send response bodies to Gemini — only metadata (name, method, status, timings, anomaly types, baseline).
+- On any AI failure (no key, network, quota, invalid JSON): create a deterministic fallback alert from templates. Monitoring never fails because of AI.
+- Never send response bodies to the AI provider — only metadata (name, method, status, timings, anomaly types, baseline).
 
 ## Scheduler
 - APScheduler AsyncIOScheduler, single instance in FastAPI lifespan. One interval job per active monitor, `max_instances=1`, `coalesce=True`, `misfire_grace_time` = interval.
